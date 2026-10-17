@@ -104,7 +104,12 @@ it with `--data` / `-TestData` or `CUSTOM_FFMPEG_TEST_DATA`.
   `docs/test-status.md`; user-visible changes → `README.md`.
 - New dependency: submodule (or archive + SHA256) in `versions.cmake`, dep
   script(s), test manifest, CI matrix entry and cache key paths, license
-  entry in `LICENSES.md`.
+  entry in `LICENSES.md`, its license files for `build_deps.sh`
+  (`install_licenses`) and its config.h feature in `build_ffmpeg.sh`
+  (`dep_if`: licenses, build-info, release archives).
+- Releases: SemVer tags `vX.Y.Z` (`-rc.N` for trials) pushed to master's
+  commit; CI packs every variant (`tools/package_release.py`) and drafts the
+  release (`tools/release_notes.py`). Publishing the draft is a manual step.
 - Commit messages: `<area>: <what changed>` in lower case (e.g.
   `libvpx: …`, `build: …`, `docs: …`, `ci: …`).
 

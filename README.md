@@ -63,6 +63,27 @@ libwebp 1.6.0, zlib 1.3.2, LAME 3.100, nv-codec-headers 12.1.14.0,
 AMF headers 1.5.0, libvpl 2.17.0, libva 2.24.1 and libdrm 2.4.134 (Linux) —
 see [versions.cmake](versions.cmake).
 
+## Download
+
+Prebuilt archives of every variant are attached to the
+[GitHub releases](https://github.com/BarabashkaD/custom_ffmpeg/releases):
+`custom_ffmpeg-<version>-<platform>-<type>-<profile>.zip` (Windows) or
+`.tar.xz` (Linux, macOS), with `SHA256SUMS` and build provenance attestations
+(`gh attestation verify <archive> -R BarabashkaD/custom_ffmpeg`). Each archive
+is self-contained — unpack it anywhere:
+
+```cmake
+list(APPEND CMAKE_MODULE_PATH "<archive>/cmake")
+set(CUSTOM_FFMPEG_ROOT "<archive>/<platform>/<type>/<profile>")
+find_package(CustomFFmpeg REQUIRED COMPONENTS avformat avcodec swscale)
+```
+
+A static archive also carries the dependency libraries its profile links
+(`.deps/<platform>/lib`, no GPL code in `lgpl`/`minimal`); every archive has
+the license texts (`share/licenses/`) and `share/custom_ffmpeg/build-info.txt`.
+Releases follow [Semantic Versioning](https://semver.org); the FFmpeg version
+is in the release title.
+
 ## Building
 
 Clone with submodules (shallow is enough):
