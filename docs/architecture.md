@@ -7,7 +7,7 @@ Problems met while building and how they were solved: [build-issues.md](build-is
 ```
 docker/Dockerfile        tools only (Alpine, clang/lld 19, nasm, cmake, ninja, meson, autotools) — no build logic
 sources/                 git submodules pinned to release tags (list in versions.cmake)
-patches/<project>/       patches applied to an exported copy of the sources (Windows target)
+patches/<project>/       patches applied to an exported copy of the sources (by the dep scripts that need them)
 compat/                  case-sensitivity shims for the Windows SDK inside a Linux container
 profiles/*.cmake         WHAT to build: libraries, configure flags, per-OS features,
                          required components, expected license
@@ -156,6 +156,7 @@ headers, MSVC, Windows SDK (clang's intrinsics headers must win over MSVC's).
 | Test manifests refreshed even when the dependency is already built (libvpx) | a stale `tests.tsv` without the memory options let `IntegerOverflowLarge` run in a shard (OOM) |
 | `DISABLED_` googletest cases reported separately | gtest lists them in the XML as not run; they were counted as passed |
 | Tests excluded only when they fail in upstream builds too, with the reason in the manifest | e.g. 11 SvtAv1ApiTests with stale expected defaults (upstream CI never runs that binary) |
+| Upstream fixes of test code not yet in a release applied as patches (SVT-AV1 `SadTest.cc`, upstream 11032898) | a test reading uninitialized memory fails at random (macOS arm64 CI); the fix touches only the test, the shipped library stays the release |
 | Exit status 77 means SKIP | `vainfo` / `test_va_api` without access to `/dev/dri` (CI, WSL) are skipped, not failed |
 | Without test data, a googletest case failing with "file open failed" is a SKIP | the missing file is followed by cascading md5 assertions |
 | FATE for the Windows build from WSL | FATE is make + shell; the programs still run natively on Windows through WSL interop |

@@ -1,0 +1,44 @@
+From 11032898a0ae13f74866cdcf2fe7d6a77e3cafaf Mon Sep 17 00:00:00 2001
+From: czoli1976 <czoli1976@users.noreply.github.com>
+Date: Fri, 31 Jul 2026 14:08:30 +0100
+Subject: [PATCH] SadTest: fully initialize ref_ in SADTestBase16bit SRC_MAX
+
+The SRC_MAX case zeroed only MAX_SB_SIZE (128) of the MAX_BLOCK_SIZE
+(128x128 = 16384) elements that SetUp() allocates for ref_, so every
+block wider than the initialized window compared src_ against
+uninitialized heap. NEON/SADTestSubSample16bit then passed or failed
+depending on what the allocator handed back -- it fails in a full
+SvtAv1UnitTests run once earlier suites have dirtied the heap, and
+passes when run filtered on a fresh heap.
+
+The sibling REF_MAX, RANDOM and UNALIGN cases in the same function all
+loop to MAX_BLOCK_SIZE, and the 8-bit SADTestBase::prepare_data() uses
+MAX_REF_BLOCK_SIZE for its ref buffers, so this was a typo.
+
+Deterministic before/after check, poisoning freed memory so the recycled
+allocation is non-zero:
+
+  MallocScribble=1 ./Bin/Release/SvtAv1UnitTests \
+      --gtest_filter="NEON/SADTestSubSample16bit.*"
+
+Fixes #2384
+---
+ test/SadTest.cc | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/test/SadTest.cc b/test/SadTest.cc
+index b3f394a6c..e5cc10566 100644
+--- a/test/SadTest.cc
++++ b/test/SadTest.cc
+@@ -1493,7 +1493,7 @@ class SADTestBase16bit : public ::testing::Test {
+             for (int i = 0; i < MAX_BLOCK_SIZE; i++)
+                 src_[i] = mask;
+ 
+-            for (int i = 0; i < MAX_SB_SIZE; i++)
++            for (int i = 0; i < MAX_BLOCK_SIZE; i++)
+                 ref_[i] = 0;
+ 
+             break;
+-- 
+GitLab
+

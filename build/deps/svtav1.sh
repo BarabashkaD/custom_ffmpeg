@@ -10,7 +10,14 @@ if already_built lib/pkgconfig/SvtAv1Enc.pc; then
 fi
 
 echo "=== svtav1 (${TARGET_OS}) ==="
-SRC_DIR=$(dep_src svtav1)
+# Fresh export: patches apply to the export, the submodule stays clean.
+# 0001: upstream fix after v4.2.0 (11032898, issue #2384) — SADTestBase16bit
+# zeroed only 128 of the 16384 ref_ samples for SRC_MAX, so the 16-bit SAD
+# tests compared against uninitialized heap (NEON/SADTestSubSample16bit failed
+# on macOS arm64). Test code only; the library is unchanged.
+SRC_DIR=$(dep_src svtav1 --fresh)
+apply_patches "$SRC_DIR" svtav1
+echo "svtav1: applied $(cd "$REPO_ROOT/patches/svtav1" && echo *.patch)"
 dep_build_dir svtav1
 BUILD_TMP="$PWD"
 
