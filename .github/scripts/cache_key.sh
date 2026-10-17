@@ -23,7 +23,9 @@ cd "$(git rev-parse --show-toplevel)"
 
 case "$platform" in
     windows-x64)
-        platform_files=(build/build_ffmpeg.sh docker compat cmake/GenerateConfig.cmake cmake/FindWindowsSDK.cmake)
+        # the target environment, not build_ffmpeg.sh: its dep stage only calls
+        # build_deps.sh, so FFmpeg-stage changes keep the deps' caches
+        platform_files=(build/lib/target_env.sh docker compat cmake/GenerateConfig.cmake cmake/FindWindowsSDK.cmake)
         runner="${ImageOS:-local}-msvc=${MSVC_VERSION:?run Generate config first}"
         runner+="-sdk=${WINSDK_VERSION:?run Generate config first}-${WINSDK_BUILD:?run Generate config first}"
         runner+="-files=${WINTOOLS_HASH:?run Generate config first}"
