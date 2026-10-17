@@ -32,7 +32,8 @@ are licensed under that project's license (table below).
 | libaom (branch `av1-normative`, decoder only) | BSD-2-Clause + AOMedia Patent License 1.0 | `libaom/LICENSE`, `libaom/PATENTS` | none — reference decoder linked into SVT-AV1's `SvtAv1E2ETests` only, not installed, not in any library |
 
 Patches: `patches/x264` and `patches/x265` are GPL-2.0-or-later,
-`patches/libvpx` is BSD-3-Clause, `patches/libvpl` and `patches/libva` are MIT.
+`patches/libvpx` is BSD-3-Clause, `patches/svtav1` is BSD-3-Clause-Clear,
+`patches/libvpl` and `patches/libva` are MIT.
 
 ## License of the built libraries
 

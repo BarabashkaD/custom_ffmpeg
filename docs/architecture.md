@@ -158,6 +158,7 @@ headers, MSVC, Windows SDK (clang's intrinsics headers must win over MSVC's).
 | `DISABLED_` googletest cases reported separately | gtest lists them in the XML as not run; they were counted as passed |
 | Tests excluded only when they fail in upstream builds too, with the reason in the manifest | e.g. 11 SvtAv1ApiTests with stale expected defaults (upstream CI never runs that binary) |
 | Upstream fixes of test code not yet in a release applied as patches (SVT-AV1 `SadTest.cc`, upstream 11032898) | a test reading uninitialized memory fails at random (macOS arm64 CI); the fix touches only the test, the shipped library stays the release |
+| A library bug found by a dependency's own tests is fixed by our patch when upstream has no fix (SVT-AV1 `0003`, picture manager race) | the test was right: the same deadlock can hit every low-delay encode on a loaded machine; excluding or serialising the test would only hide it |
 | Exit status 77 means SKIP | `vainfo` / `test_va_api` without access to `/dev/dri` (CI, WSL) are skipped, not failed |
 | Without test data, a googletest case failing with "file open failed" is a SKIP | the missing file is followed by cascading md5 assertions |
 | FATE for the Windows build from WSL | FATE is make + shell; the programs still run natively on Windows through WSL interop |

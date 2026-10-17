@@ -14,7 +14,13 @@ echo "=== svtav1 (${TARGET_OS}) ==="
 # 0001: upstream fix after v4.2.0 (11032898, issue #2384) — SADTestBase16bit
 # zeroed only 128 of the 16384 ref_ samples for SRC_MAX, so the 16-bit SAD
 # tests compared against uninitialized heap (NEON/SADTestSubSample16bit failed
-# on macOS arm64). Test code only; the library is unchanged.
+# on macOS arm64). Test code only.
+# 0002: upstream fix after v4.2.0 (c9c5940f) — ForwardTransformTest memset
+# with an element count (AVX-512 runners). Test code only.
+# 0003: our library fix, not upstream yet — the picture manager read the
+# parent PCS after posting it to rate control; in low delay (single PPCS) it
+# could already be reused, a reference was never released and the encoder
+# deadlocked (OnTheFlyRejectTest.*, intermittent under CPU load).
 SRC_DIR=$(dep_src svtav1 --fresh)
 apply_patches "$SRC_DIR" svtav1
 echo "svtav1: applied $(cd "$REPO_ROOT/patches/svtav1" && echo *.patch)"
