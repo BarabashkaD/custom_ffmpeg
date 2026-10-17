@@ -25,7 +25,9 @@ case "$platform" in
     windows-x64)
         # the target environment, not build_ffmpeg.sh: its dep stage only calls
         # build_deps.sh, so FFmpeg-stage changes keep the deps' caches
-        platform_files=(build/lib/target_env.sh docker compat cmake/GenerateConfig.cmake cmake/FindWindowsSDK.cmake)
+        # windows_stage.ps1 decides which SDK/MSVC files the container sees
+        platform_files=(build/lib/target_env.sh docker compat cmake/GenerateConfig.cmake cmake/FindWindowsSDK.cmake
+                        .github/scripts/windows_stage.ps1)
         runner="${ImageOS:-local}-msvc=${MSVC_VERSION:?run Generate config first}"
         runner+="-sdk=${WINSDK_VERSION:?run Generate config first}-${WINSDK_BUILD:?run Generate config first}"
         runner+="-files=${WINTOOLS_HASH:?run Generate config first}"
