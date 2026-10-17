@@ -22,8 +22,16 @@ on:
     paths-ignore:
       - '**.md'
       - 'docs/**'
+  # Weekly: everything from the caches, but the long dependency test suites run
+  # (on other runs they are skipped on cache hits; see HEAVY_TESTS)
+  schedule:
+    - cron: '0 3 * * 1'
   workflow_dispatch:
     inputs:
+      full_tests:
+        description: 'Run the long dependency test suites on cache hits too'
+        type: boolean
+        default: false
       windows:
         description: 'Build windows-x64'
         type: boolean
@@ -61,6 +69,9 @@ concurrency:
 # CMake for the Windows host steps (official release, see .github/scripts/install_cmake.ps1)
 env:
   CMAKE_VERSION: 4.2.8
+  # Long test suites (<dep>/<name> in tests.tsv): run when the dependency was
+  # rebuilt, on the weekly schedule and with full_tests; skipped on cache hits
+  HEAVY_TESTS: svtav1/unit_tests,svtav1/e2e_tests,libvpx/test_libvpx
 
 jobs:
   # ── Build & push Docker builder image to ghcr.io ────────────────────────────
@@ -187,10 +198,12 @@ jobs:
       # Runs on cache hits too: the dependency's own test programs and CLI
       # round trips (test vectors are a local, full-level run)
       - name: Dependency tests
+        env:
+          SKIP_TESTS: ${{ steps.cache.outputs.cache-hit == 'true' && github.event_name != 'schedule' && !inputs.full_tests && env.HEAVY_TESTS || '' }}
         run: |
           chmod -R +x prebuilt/.deps/linux-x64/bin prebuilt/.deps/linux-x64/tests 2>/dev/null || true
           python3 tests/deps/run_dep_tests.py prebuilt/.deps/linux-x64 \
-            --only "$(echo '${{ matrix.dep.args }}' | tr ' ' ,)"
+            --only "$(echo '${{ matrix.dep.args }}' | tr ' ' ,)" --skip "$SKIP_TESTS"
 
       - name: Upload dep artifacts
         uses: actions/upload-artifact@v6
@@ -433,9 +446,11 @@ jobs:
 
       # Windows host — the PE test programs and tools run natively
       - name: Dependency tests
+        env:
+          SKIP_TESTS: ${{ steps.cache.outputs.cache-hit == 'true' && github.event_name != 'schedule' && !inputs.full_tests && env.HEAVY_TESTS || '' }}
         run: |
           python tests/deps/run_dep_tests.py prebuilt\.deps\windows-x64 `
-            --only ('${{ matrix.dep.args }}' -replace ' ', ',')
+            --only ('${{ matrix.dep.args }}' -replace ' ', ',') --skip "$env:SKIP_TESTS"
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Upload dep artifacts
@@ -641,10 +656,12 @@ jobs:
           key: ${{ steps.key.outputs.key }}
 
       - name: Dependency tests
+        env:
+          SKIP_TESTS: ${{ steps.cache.outputs.cache-hit == 'true' && github.event_name != 'schedule' && !inputs.full_tests && env.HEAVY_TESTS || '' }}
         run: |
           chmod -R +x prebuilt/.deps/macos-arm64/bin prebuilt/.deps/macos-arm64/tests 2>/dev/null || true
           python3 tests/deps/run_dep_tests.py prebuilt/.deps/macos-arm64 \
-            --only "$(echo '${{ matrix.dep.args }}' | tr ' ' ,)"
+            --only "$(echo '${{ matrix.dep.args }}' | tr ' ' ,)" --skip "$SKIP_TESTS"
 
       - name: Upload dep artifacts
         uses: actions/upload-artifact@v6

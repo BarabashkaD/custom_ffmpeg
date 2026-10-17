@@ -124,7 +124,7 @@ class Runner:
                 .replace("{data}", self.data or ""))
 
     # ── test programs from tests.tsv ───────────────────────────────────────
-    def run_manifests(self, only):
+    def run_manifests(self, only, skip=()):
         root = os.path.join(self.deps, "tests")
         if not os.path.isdir(root):
             self.say(f"(no test programs in {root})")
@@ -140,6 +140,9 @@ class Runner:
             for row in rows:
                 row += [""] * (6 - len(row))
                 name, program, args, env_spec, kind, opts = row[:6]
+                if f"{dep}/{name}" in skip:
+                    self.record(dep, name, "SKIP", 0, "not run (--skip)")
+                    continue
                 self.run_manifest_test(dep, os.path.join(root, dep), name, program,
                                        args, env_spec, kind or "plain", opts)
 
@@ -705,11 +708,15 @@ def main():
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 2)
     ap.add_argument("--log", help="write full output to this file")
     ap.add_argument("--keep", action="store_true", help="keep the scratch directory")
+    ap.add_argument("--skip", default="",
+                    help="comma-separated test programs not to run, as <dep>/<name> "
+                         "(CI: the long suites on cache hits)")
     a = ap.parse_args()
 
     log = open(a.log, "w", encoding="utf-8") if a.log else None
     r = Runner(a.deps_dir, a.data, a.jobs, log)
     only = set(filter(None, a.only.split(",")))
+    skip = set(filter(None, a.skip.split(",")))
     r.say(f"deps: {r.deps}  data: {r.data or '(none)'}  host: {platform.system()} {platform.machine()}")
     # SIMD paths tested depend on the CPU (e.g. AVX-512 tests are filtered out
     # without it): record what this machine has
@@ -722,7 +729,7 @@ def main():
     except OSError:
         pass                                # not Linux
     try:
-        r.run_manifests(only)
+        r.run_manifests(only, skip)
         r.run_cli_tests(only)
         r.run_opus_vectors(only)
         r.run_dav1d_testdata(only)

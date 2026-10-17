@@ -189,7 +189,7 @@ headers, MSVC, Windows SDK (clang's intrinsics headers must win over MSVC's).
 | Decision | Reason |
 |---|---|
 | Deps matrix per platform, then FFmpeg per type × profile | parallel jobs instead of sequential builds |
-| Each deps job runs that dependency's tests (also on cache hits); FATE on fresh static builds | CI has no test vectors except the cached FATE samples (Linux) |
+| Each deps job runs that dependency's tests, also on cache hits — except the long suites (`HEAVY_TESTS`: SVT-AV1 unit/E2E, libvpx), which run when the dependency was rebuilt, weekly (schedule) and on demand (`full_tests`); FATE on fresh static builds | CI has no test vectors except the cached FATE samples (Linux); the long suites took 20–30 min of every run, even when nothing changed |
 | Cache keys from `git ls-files -s` + the toolchain (Linux/macOS: runner image; Windows: MSVC/SDK versions and a hash of key MSVC/SDK files, builder image package list) | content-based, independent of line endings, no submodule checkout needed; the weekly Windows runner image update does not invalidate the Windows caches |
 | Windows jobs on `windows-2025` (VS 2026 image) with its v143 component, CMake 4.2 from the official release | WSL2 is preinstalled, so setup-wsl skips `wsl --update` (403 now and then on windows-2022); the libraries keep MSVC 14.44, and the consumer test uses the VS 2026 generator with `-T v143` (CMake ≥ 4.2; the runner has 3.31) |
 | Windows jobs check out only the submodules they build from (`.github/scripts/dep_submodules.sh`); `export_src` fails on a missing checkout | ~40 s per job; an empty submodule directory would otherwise export the enclosing repository |
