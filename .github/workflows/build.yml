@@ -371,6 +371,11 @@ jobs:
             git submodule update --init --recursive --depth 1 -- $paths
           fi
 
+      # SDK/MSVC/compat (+ deps) packed on the Windows side, unpacked onto WSL's ext4
+      - name: Stage toolchain files
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: ./.github/scripts/windows_stage.ps1 -Out "${{ runner.temp }}/stage"
+
       - name: Set up WSL2 Ubuntu with Docker
         if: steps.cache.outputs.cache-hit != 'true'
         uses: Vampire/setup-wsl@v7
@@ -394,8 +399,16 @@ jobs:
 
           # wslpath converts Windows backslash paths → Linux /mnt/... paths
           REPO=$(wslpath '${{ github.workspace }}')
-          KITS=$(wslpath '${{ env.KITS_ROOT }}')
-          MSVC=$(wslpath '${{ env.MSVC_ROOT }}')
+          # Toolchain files from the staged tars onto WSL's ext4: the container then
+          # reads them natively instead of through the 9p drive mounts
+          STAGE=$HOME/stage
+          rm -rf "$STAGE"
+          for t in "$(wslpath '${{ runner.temp }}')"/stage/*.tar; do
+            n=$(basename "$t" .tar)
+            mkdir -p "$STAGE/$n" && tar -xf "$t" -C "$STAGE/$n"
+          done
+          DEPS_MOUNT=()
+          [ -d "$STAGE/deps" ] && DEPS_MOUNT=(-v "$STAGE/deps:/artifacts/.deps/windows-x64")
 
           # Pull pre-built image from ghcr.io (built by the build-image job).
           # ghcr.io package names are lowercase; normalise here to be explicit.
@@ -408,8 +421,10 @@ jobs:
             -v "$REPO:/src" \
             -v "$REPO/prebuilt:/artifacts" \
             -v "$REPO/generated:/configs:ro" \
-            -v "$KITS:/winsdk/kits:ro" \
-            -v "$MSVC:/winsdk/msvc:ro" \
+            -v "$STAGE/compat:/src/compat:ro" \
+            "${DEPS_MOUNT[@]}" \
+            -v "$STAGE/kits:/winsdk/kits:ro" \
+            -v "$STAGE/msvc:/winsdk/msvc:ro" \
             custom-ffmpeg-builder \
             bash -lc "ONLY_DEPS='${{ matrix.dep.args }}' bash /src/build/build_ffmpeg.sh /configs/windows-x64-static-full.env"
 
@@ -495,6 +510,11 @@ jobs:
           path: prebuilt\.deps\windows-x64\
           merge-multiple: true
 
+      # SDK/MSVC/compat + deps packed on the Windows side, unpacked onto WSL's ext4
+      - name: Stage toolchain files
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: ./.github/scripts/windows_stage.ps1 -Out "${{ runner.temp }}/stage" -Deps
+
       - name: Set up WSL2 Ubuntu with Docker
         if: steps.cache.outputs.cache-hit != 'true'
         uses: Vampire/setup-wsl@v7
@@ -518,8 +538,16 @@ jobs:
 
           # wslpath converts Windows backslash paths → Linux /mnt/... paths
           REPO=$(wslpath '${{ github.workspace }}')
-          KITS=$(wslpath '${{ env.KITS_ROOT }}')
-          MSVC=$(wslpath '${{ env.MSVC_ROOT }}')
+          # Toolchain files from the staged tars onto WSL's ext4: the container then
+          # reads them natively instead of through the 9p drive mounts
+          STAGE=$HOME/stage
+          rm -rf "$STAGE"
+          for t in "$(wslpath '${{ runner.temp }}')"/stage/*.tar; do
+            n=$(basename "$t" .tar)
+            mkdir -p "$STAGE/$n" && tar -xf "$t" -C "$STAGE/$n"
+          done
+          DEPS_MOUNT=()
+          [ -d "$STAGE/deps" ] && DEPS_MOUNT=(-v "$STAGE/deps:/artifacts/.deps/windows-x64")
 
           # Pull pre-built image from ghcr.io (built by the build-image job).
           # ghcr.io package names are lowercase; normalise here to be explicit.
@@ -532,8 +560,10 @@ jobs:
             -v "$REPO:/src" \
             -v "$REPO/prebuilt:/artifacts" \
             -v "$REPO/generated:/configs:ro" \
-            -v "$KITS:/winsdk/kits:ro" \
-            -v "$MSVC:/winsdk/msvc:ro" \
+            -v "$STAGE/compat:/src/compat:ro" \
+            "${DEPS_MOUNT[@]}" \
+            -v "$STAGE/kits:/winsdk/kits:ro" \
+            -v "$STAGE/msvc:/winsdk/msvc:ro" \
             custom-ffmpeg-builder \
             bash -lc "set -e; export SKIP_DEPS=1; bash /src/build/build_ffmpeg.sh /configs/windows-x64-${{ matrix.type }}-${{ matrix.profile }}.env"
 
