@@ -1,0 +1,26 @@
+--- a/configure
++++ b/configure
+@@ -781,7 +781,7 @@
+         elif [ "$SYS" = WINDOWS -o "$SYS" = CYGWIN ]; then
+             ASFLAGS="$ASFLAGS -f win32 -DPREFIX"
+             LDFLAGS="$LDFLAGS -Wl,--large-address-aware"
+-            [ $compiler = GNU ] && LDFLAGS="$LDFLAGS -Wl,--dynamicbase,--nxcompat,--tsaware"
++            [ $compiler = GNU ] && LDFLAGS="$LDFLAGS -Wl,/dynamicbase -Wl,/nxcompat -Wl,/tsaware"
+             [ $compiler = GNU ] && RCFLAGS="--target=pe-i386 $RCFLAGS"
+         else
+             ASFLAGS="$ASFLAGS -f elf32"
+@@ -805,10 +805,10 @@
+             if [ $compiler = GNU ]; then
+                 # only the GNU toolchain is inconsistent in prefixing function names with _
+                 cc_check "" "-S" && grep -q "_main:" conftest && ASFLAGS="$ASFLAGS -DPREFIX"
+-                cc_check "" "-Wl,--high-entropy-va" && LDFLAGS="$LDFLAGS -Wl,--high-entropy-va"
+-                LDFLAGS="$LDFLAGS -Wl,--dynamicbase,--nxcompat,--tsaware"
+-                LDFLAGSCLI="$LDFLAGSCLI -Wl,--image-base,0x140000000"
+-                SOFLAGS="$SOFLAGS -Wl,--image-base,0x180000000"
++                cc_check "" "-Wl,/highentropyva" && LDFLAGS="$LDFLAGS -Wl,/highentropyva"
++                LDFLAGS="$LDFLAGS -Wl,/dynamicbase -Wl,/nxcompat -Wl,/tsaware"
++                LDFLAGSCLI="$LDFLAGSCLI -Wl,/base:0x140000000"
++                SOFLAGS="$SOFLAGS -Wl,/base:0x180000000"
+                 RCFLAGS="--target=pe-x86-64 $RCFLAGS"
+             fi
+         else

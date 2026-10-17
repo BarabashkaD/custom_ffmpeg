@@ -1,0 +1,685 @@
+name: Build all deps + FFmpeg
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'build/**'
+      - 'patches/**'
+      - 'compat/**'
+      - 'docker/**'
+      - 'cmake/**'
+      - 'profiles/**'
+      - 'sources/**'
+      - 'tests/**'
+      - 'tools/**'
+      - 'versions.cmake'
+      - '.github/workflows/build.yml'
+      - '.github/scripts/**'
+  pull_request:
+    branches: [master]
+    # Docs-only changes (CLAUDE.md, README, docs/) do not need a ~1 h build
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+    inputs:
+      windows:
+        description: 'Build windows-x64'
+        type: boolean
+        default: true
+      linux:
+        description: 'Build linux-x64'
+        type: boolean
+        default: true
+      macos:
+        description: 'Build macos-arm64'
+        type: boolean
+        default: true
+      profiles:
+        description: 'FFmpeg profiles'
+        type: choice
+        options: [all, full, lgpl, minimal]
+        default: all
+      types:
+        description: 'FFmpeg build types'
+        type: choice
+        options: [both, static, shared]
+        default: both
+
+# A new push to the same PR/branch cancels the run still in progress.
+# master keeps every run: each merge must produce complete artifacts.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+# Build caching: every deps matrix entry and every FFmpeg job caches its output
+# under a content key from .github/scripts/cache_key.sh (submodule commits,
+# scripts, patches, profiles, runner image). On a hit the job skips submodule
+# checkout, toolchain setup and the build, and only restores + uploads/tests.
+
+jobs:
+  # ── Build & push Docker builder image to ghcr.io ────────────────────────────
+  # The image is layer-cached in the registry, so re-runs where the Dockerfile
+  # has not changed complete in seconds (all layers restored from cache).
+  # The windows job pulls this pre-built image instead of rebuilding it every run.
+  build-image:
+    name: Docker builder image
+    if: github.event_name != 'workflow_dispatch' || inputs.windows
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image name (lowercase owner)
+        id: image
+        run: echo "name=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/custom-ffmpeg-builder" >> $GITHUB_OUTPUT
+
+      - name: Build and push builder image
+        uses: docker/build-push-action@v7
+        with:
+          context: docker/
+          push: true
+          tags: ${{ steps.image.outputs.name }}:latest
+          cache-from: type=registry,ref=${{ steps.image.outputs.name }}:buildcache
+          cache-to: type=registry,ref=${{ steps.image.outputs.name }}:buildcache,mode=max
+
+  # ── Linux deps matrix (native) ──────────────────────────────────────────────
+  linux-deps:
+    name: Deps — linux-x64 (${{ matrix.dep.name }})
+    if: github.event_name != 'workflow_dispatch' || inputs.linux
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        dep:
+          - { name: zlib, args: "zlib" }
+          - { name: libogg, args: "libogg" }
+          - { name: libvorbis, args: "libogg libvorbis" }
+          - { name: opus, args: "opus" }
+          - { name: libvpx, args: "libvpx" }
+          - { name: x264, args: "x264" }
+          - { name: x265, args: "x265" }
+          - { name: libwebp, args: "libwebp" }
+          - { name: mp3lame, args: "mp3lame" }
+          - { name: svtav1, args: "svtav1" }
+          - { name: dav1d, args: "dav1d" }
+          - { name: ffnvcodec, args: "ffnvcodec" }
+          - { name: amf, args: "amf" }
+          - { name: libvpl, args: "libvpl" }
+          - { name: libdrm, args: "libdrm" }
+          - { name: libva, args: "libdrm libva" }
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Cache key
+        id: key
+        run: echo "key=deps-linux-x64-${{ matrix.dep.name }}-$(bash .github/scripts/cache_key.sh linux-x64 deps ${{ matrix.dep.args }})" >> "$GITHUB_OUTPUT"
+
+      - name: Restore cached build
+        id: cache
+        uses: actions/cache/restore@v5
+        with:
+          path: prebuilt/.deps/linux-x64/
+          key: ${{ steps.key.outputs.key }}
+
+      - name: Checkout submodules
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: git submodule update --init --recursive --depth 1
+
+      - name: Install prerequisites
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            clang nasm cmake ninja-build meson pkg-config \
+            autoconf automake libtool \
+            python3 curl
+
+      - name: Build dependency
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: bash build/build_linux.sh ${{ matrix.dep.args }}
+
+      - name: Save build cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: prebuilt/.deps/linux-x64/
+          key: ${{ steps.key.outputs.key }}
+
+      # Runs on cache hits too: the dependency's own test programs and CLI
+      # round trips (test vectors are a local, full-level run)
+      - name: Dependency tests
+        run: |
+          chmod -R +x prebuilt/.deps/linux-x64/bin prebuilt/.deps/linux-x64/tests 2>/dev/null || true
+          python3 tests/deps/run_dep_tests.py prebuilt/.deps/linux-x64 \
+            --only "$(echo '${{ matrix.dep.args }}' | tr ' ' ,)"
+
+      - name: Upload dep artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: deps-linux-x64-${{ matrix.dep.name }}
+          path: prebuilt/.deps/linux-x64/
+          retention-days: 7
+
+  # ── Linux — FFmpeg (native, after deps matrix) ──────────────────────────────
+  linux:
+    name: FFmpeg — linux-x64 (${{ matrix.type }}, ${{ matrix.profile }})
+    runs-on: ubuntu-24.04
+    needs: linux-deps
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # one job per build type x profile (parallel); manual runs may pick one of each
+        type: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.types != 'both') && format('["{0}"]', inputs.types) || '["static","shared"]') }}
+        profile: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.profiles != 'all') && format('["{0}"]', inputs.profiles) || '["full","lgpl","minimal"]') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Cache key
+        id: key
+        run: echo "key=ffmpeg-linux-x64-${{ matrix.type }}-${{ matrix.profile }}-$(bash .github/scripts/cache_key.sh linux-x64 ffmpeg ${{ matrix.type }} ${{ matrix.profile }})" >> "$GITHUB_OUTPUT"
+
+      - name: Restore cached build
+        id: cache
+        uses: actions/cache/restore@v5
+        with:
+          path: prebuilt/linux-x64/${{ matrix.type }}/${{ matrix.profile }}/
+          key: ${{ steps.key.outputs.key }}
+
+      - name: Checkout submodules
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: git submodule update --init --recursive --depth 1
+
+      - name: Install prerequisites
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            clang nasm cmake ninja-build meson pkg-config \
+            autoconf automake libtool \
+            python3 curl
+
+      - name: Download deps from matrix jobs
+        uses: actions/download-artifact@v7
+        with:
+          pattern: deps-linux-x64-*
+          path: prebuilt/.deps/linux-x64/
+          merge-multiple: true
+
+      - name: Build FFmpeg (linux-x64 ${{ matrix.type }})
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          shared=""; [ "${{ matrix.type }}" = shared ] && shared=--shared
+          bash build/build_linux.sh --ffmpeg ${{ matrix.profile }} $shared
+
+      - name: Consumer test (find_package(CustomFFmpeg), C and C++)
+        run: |
+          CC=clang CXX=clang++ bash tests/consumer/run.sh prebuilt/linux-x64/${{ matrix.type }}/${{ matrix.profile }}
+
+      # FATE needs the build tree, so it runs on fresh static builds with
+      # programs (not minimal). The fate-suite samples (~1.4 GB) are cached.
+      - name: Cache FATE samples
+        id: fate-cache
+        if: steps.cache.outputs.cache-hit != 'true' && matrix.type == 'static' && matrix.profile != 'minimal'
+        uses: actions/cache@v5
+        with:
+          path: testdata/fate-suite/
+          key: fate-suite-v1
+
+      - name: Fetch FATE samples
+        if: steps.cache.outputs.cache-hit != 'true' && matrix.type == 'static' && matrix.profile != 'minimal' && steps.fate-cache.outputs.cache-hit != 'true'
+        run: bash tools/fetch_test_data.sh testdata fate
+
+      - name: FATE
+        if: steps.cache.outputs.cache-hit != 'true' && matrix.type == 'static' && matrix.profile != 'minimal'
+        run: |
+          bash tests/fate/run_fate.sh prebuilt/.build/ffmpeg-linux-x64-${{ matrix.type }}-${{ matrix.profile }} \
+            --samples testdata/fate-suite
+
+      - name: Save build cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: prebuilt/linux-x64/${{ matrix.type }}/${{ matrix.profile }}/
+          key: ${{ steps.key.outputs.key }}
+
+      - name: Upload FFmpeg artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: ffmpeg-linux-x64-${{ matrix.type }}-${{ matrix.profile }}
+          path: prebuilt/linux-x64/${{ matrix.type }}/${{ matrix.profile }}/
+          retention-days: 7
+
+  # ── Windows deps matrix (Docker in WSL2) ─────────────────────────────────────
+  windows-deps:
+    name: Deps — windows-x64 (${{ matrix.dep.name }})
+    runs-on: windows-2022
+    needs: build-image
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        dep:
+          - { name: zlib, args: "zlib" }
+          - { name: libogg, args: "libogg" }
+          - { name: libvorbis, args: "libogg libvorbis" }
+          - { name: opus, args: "opus" }
+          - { name: libvpx, args: "libvpx" }
+          - { name: x264, args: "x264" }
+          - { name: x265, args: "x265" }
+          - { name: libwebp, args: "libwebp" }
+          - { name: mp3lame, args: "mp3lame" }
+          - { name: svtav1, args: "svtav1" }
+          - { name: dav1d, args: "dav1d" }
+          - { name: ffnvcodec, args: "ffnvcodec" }
+          - { name: amf, args: "amf" }
+          - { name: libvpl, args: "libvpl" }
+
+    steps:
+      - name: Disable CRLF auto-conversion (must be before checkout)
+        run: git config --global core.autocrlf false
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Cache key
+        id: key
+        shell: bash
+        run: echo "key=deps-windows-x64-${{ matrix.dep.name }}-$(bash .github/scripts/cache_key.sh windows-x64 deps ${{ matrix.dep.args }})" >> "$GITHUB_OUTPUT"
+
+      - name: Restore cached build
+        id: cache
+        uses: actions/cache/restore@v5
+        with:
+          path: prebuilt/.deps/windows-x64/
+          key: ${{ steps.key.outputs.key }}
+
+      - name: Checkout submodules
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: git submodule update --init --recursive --depth 1
+
+      - name: Generate config (Windows host)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          cmake `
+            -DTARGET_PLATFORM=windows-x64 `
+            -DBUILD_TYPE=static `
+            -DPROFILE=full `
+            -DOUTPUT_DIR=generated `
+            -DPROFILES_DIR=profiles `
+            -P cmake/GenerateConfig.cmake
+
+          # SDK + MSVC host paths: detected once by cmake/FindWindowsSDK.cmake
+          # (registry / vswhere) and written to the generated .json
+          $sdk = Get-ChildItem generated/windows-x64-static-*.json | Select-Object -First 1 |
+                 Get-Content -Raw | ConvertFrom-Json
+          if (-not $sdk.WINSDK_HOST_KITS_ROOT -or -not $sdk.MSVC_HOST_DIR) {
+            Write-Error "Windows SDK / MSVC not detected"; exit 1
+          }
+          "KITS_ROOT=$($sdk.WINSDK_HOST_KITS_ROOT)" >> $env:GITHUB_ENV
+          "MSVC_ROOT=$($sdk.MSVC_HOST_DIR)" >> $env:GITHUB_ENV
+          Write-Host "KITS_ROOT : $($sdk.WINSDK_HOST_KITS_ROOT)"
+          Write-Host "MSVC_ROOT : $($sdk.MSVC_HOST_DIR)"
+
+      - name: Set up WSL2 Ubuntu with Docker
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: Vampire/setup-wsl@v7
+        with:
+          distribution: Ubuntu-24.04
+          additional-packages: >-
+            docker.io ca-certificates
+
+      - name: Build dependency (Docker inside WSL2)
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: wsl-bash {0}
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_ACTOR: ${{ github.actor }}
+          GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/custom-ffmpeg-builder:latest
+          WSLENV: GHCR_TOKEN/u:GHCR_ACTOR/u:GHCR_IMAGE/u
+        run: |
+          set -euo pipefail
+
+          sudo service docker start
+          timeout 30 bash -c 'until docker info &>/dev/null; do sleep 1; done'
+
+          # wslpath converts Windows backslash paths → Linux /mnt/... paths
+          REPO=$(wslpath '${{ github.workspace }}')
+          KITS=$(wslpath '${{ env.KITS_ROOT }}')
+          MSVC=$(wslpath '${{ env.MSVC_ROOT }}')
+
+          # Pull pre-built image from ghcr.io (built by the build-image job).
+          # ghcr.io package names are lowercase; normalise here to be explicit.
+          IMAGE_LOWER=$(echo "$GHCR_IMAGE" | tr '[:upper:]' '[:lower:]')
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
+          docker pull "$IMAGE_LOWER"
+          docker tag  "$IMAGE_LOWER" custom-ffmpeg-builder
+
+          docker run --rm \
+            -v "$REPO:/src" \
+            -v "$REPO/prebuilt:/artifacts" \
+            -v "$REPO/generated:/configs:ro" \
+            -v "$KITS:/winsdk/kits:ro" \
+            -v "$MSVC:/winsdk/msvc:ro" \
+            custom-ffmpeg-builder \
+            bash -lc "ONLY_DEPS='${{ matrix.dep.args }}' bash /src/build/build_ffmpeg.sh /configs/windows-x64-static-full.env"
+
+      - name: Save build cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: prebuilt/.deps/windows-x64/
+          key: ${{ steps.key.outputs.key }}
+
+      # Windows host — the PE test programs and tools run natively
+      - name: Dependency tests
+        run: |
+          python tests/deps/run_dep_tests.py prebuilt\.deps\windows-x64 `
+            --only ('${{ matrix.dep.args }}' -replace ' ', ',')
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Upload dep artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: deps-windows-x64-${{ matrix.dep.name }}
+          path: prebuilt\.deps\windows-x64\
+          retention-days: 7
+
+  # ── Windows — FFmpeg (Docker in WSL2, after deps matrix) ────────────────────
+  windows:
+    name: FFmpeg — windows-x64 (${{ matrix.type }}, ${{ matrix.profile }})
+    runs-on: windows-2022
+    needs: windows-deps
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # one job per build type x profile (parallel); manual runs may pick one of each
+        type: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.types != 'both') && format('["{0}"]', inputs.types) || '["static","shared"]') }}
+        profile: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.profiles != 'all') && format('["{0}"]', inputs.profiles) || '["full","lgpl","minimal"]') }}
+    steps:
+      - name: Disable CRLF auto-conversion (must be before checkout)
+        run: git config --global core.autocrlf false
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Cache key
+        id: key
+        shell: bash
+        run: echo "key=ffmpeg-windows-x64-${{ matrix.type }}-${{ matrix.profile }}-$(bash .github/scripts/cache_key.sh windows-x64 ffmpeg ${{ matrix.type }} ${{ matrix.profile }})" >> "$GITHUB_OUTPUT"
+
+      - name: Restore cached build
+        id: cache
+        uses: actions/cache/restore@v5
+        with:
+          path: prebuilt/windows-x64/${{ matrix.type }}/${{ matrix.profile }}/
+          key: ${{ steps.key.outputs.key }}
+
+      - name: Checkout submodules
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: git submodule update --init --recursive --depth 1
+
+      - name: Download deps from matrix jobs
+        uses: actions/download-artifact@v7
+        with:
+          pattern: deps-windows-x64-*
+          path: prebuilt\.deps\windows-x64\
+          merge-multiple: true
+
+      - name: Generate config (Windows host)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          foreach ($p in @('${{ matrix.profile }}')) {
+            cmake `
+              -DTARGET_PLATFORM=windows-x64 `
+              "-DBUILD_TYPE=${{ matrix.type }}" `
+              "-DPROFILE=$p" `
+              -DOUTPUT_DIR=generated `
+              -DPROFILES_DIR=profiles `
+              -P cmake/GenerateConfig.cmake
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
+
+          # SDK + MSVC host paths: detected once by cmake/FindWindowsSDK.cmake
+          # (registry / vswhere) and written to the generated .json
+          $sdk = Get-ChildItem generated/windows-x64-*.json | Select-Object -First 1 |
+                 Get-Content -Raw | ConvertFrom-Json
+          if (-not $sdk.WINSDK_HOST_KITS_ROOT -or -not $sdk.MSVC_HOST_DIR) {
+            Write-Error "Windows SDK / MSVC not detected"; exit 1
+          }
+          "KITS_ROOT=$($sdk.WINSDK_HOST_KITS_ROOT)" >> $env:GITHUB_ENV
+          "MSVC_ROOT=$($sdk.MSVC_HOST_DIR)" >> $env:GITHUB_ENV
+          Write-Host "KITS_ROOT : $($sdk.WINSDK_HOST_KITS_ROOT)"
+          Write-Host "MSVC_ROOT : $($sdk.MSVC_HOST_DIR)"
+
+      - name: Set up WSL2 Ubuntu with Docker
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: Vampire/setup-wsl@v7
+        with:
+          distribution: Ubuntu-24.04
+          additional-packages: >-
+            docker.io ca-certificates
+
+      - name: Build FFmpeg ${{ matrix.type }} (Docker inside WSL2)
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: wsl-bash {0}
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_ACTOR: ${{ github.actor }}
+          GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/custom-ffmpeg-builder:latest
+          WSLENV: GHCR_TOKEN/u:GHCR_ACTOR/u:GHCR_IMAGE/u
+        run: |
+          set -euo pipefail
+
+          sudo service docker start
+          timeout 30 bash -c 'until docker info &>/dev/null; do sleep 1; done'
+
+          # wslpath converts Windows backslash paths → Linux /mnt/... paths
+          REPO=$(wslpath '${{ github.workspace }}')
+          KITS=$(wslpath '${{ env.KITS_ROOT }}')
+          MSVC=$(wslpath '${{ env.MSVC_ROOT }}')
+
+          # Pull pre-built image from ghcr.io (built by the build-image job).
+          # ghcr.io package names are lowercase; normalise here to be explicit.
+          IMAGE_LOWER=$(echo "$GHCR_IMAGE" | tr '[:upper:]' '[:lower:]')
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
+          docker pull "$IMAGE_LOWER"
+          docker tag  "$IMAGE_LOWER" custom-ffmpeg-builder
+
+          docker run --rm \
+            -v "$REPO:/src" \
+            -v "$REPO/prebuilt:/artifacts" \
+            -v "$REPO/generated:/configs:ro" \
+            -v "$KITS:/winsdk/kits:ro" \
+            -v "$MSVC:/winsdk/msvc:ro" \
+            custom-ffmpeg-builder \
+            bash -lc "set -e; export SKIP_DEPS=1; bash /src/build/build_ffmpeg.sh /configs/windows-x64-${{ matrix.type }}-${{ matrix.profile }}.env"
+
+      - name: Consumer test (MSVC — find_package(CustomFFmpeg), C/C++ x Release/Debug)
+        run: |
+          .\tests\consumer\run.ps1 -FFmpegRoot "prebuilt\windows-x64\${{ matrix.type }}\${{ matrix.profile }}"
+
+      - name: Save build cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: prebuilt/windows-x64/${{ matrix.type }}/${{ matrix.profile }}/
+          key: ${{ steps.key.outputs.key }}
+
+      - name: Upload FFmpeg artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: ffmpeg-windows-x64-${{ matrix.type }}-${{ matrix.profile }}
+          path: prebuilt/windows-x64/${{ matrix.type }}/${{ matrix.profile }}/
+          retention-days: 7
+
+  # ── macOS ARM64 deps matrix (native) ─────────────────────────────────────────
+  macos-deps:
+    name: Deps — macos-arm64 (${{ matrix.dep.name }})
+    if: github.event_name != 'workflow_dispatch' || inputs.macos
+    runs-on: macos-14
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        dep:
+          - { name: zlib, args: "zlib" }
+          - { name: libogg, args: "libogg" }
+          - { name: libvorbis, args: "libogg libvorbis" }
+          - { name: opus, args: "opus" }
+          - { name: libvpx, args: "libvpx" }
+          - { name: x264, args: "x264" }
+          - { name: x265, args: "x265" }
+          - { name: libwebp, args: "libwebp" }
+          - { name: mp3lame, args: "mp3lame" }
+          - { name: svtav1, args: "svtav1" }
+          - { name: dav1d, args: "dav1d" }
+          # ffnvcodec / amf / libvpl: no NVIDIA / AMD / Intel QSV support on macOS
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Cache key
+        id: key
+        run: echo "key=deps-macos-arm64-${{ matrix.dep.name }}-$(bash .github/scripts/cache_key.sh macos-arm64 deps ${{ matrix.dep.args }})" >> "$GITHUB_OUTPUT"
+
+      - name: Restore cached build
+        id: cache
+        uses: actions/cache/restore@v5
+        with:
+          path: prebuilt/.deps/macos-arm64/
+          key: ${{ steps.key.outputs.key }}
+
+      - name: Checkout submodules
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: git submodule update --init --recursive --depth 1
+
+      - name: Install prerequisites
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: brew install cmake pkg-config autoconf automake libtool ninja meson
+
+      - name: Build dependency
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: bash build/build_macos.sh ${{ matrix.dep.args }}
+
+      - name: Save build cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: prebuilt/.deps/macos-arm64/
+          key: ${{ steps.key.outputs.key }}
+
+      - name: Dependency tests
+        run: |
+          chmod -R +x prebuilt/.deps/macos-arm64/bin prebuilt/.deps/macos-arm64/tests 2>/dev/null || true
+          python3 tests/deps/run_dep_tests.py prebuilt/.deps/macos-arm64 \
+            --only "$(echo '${{ matrix.dep.args }}' | tr ' ' ,)"
+
+      - name: Upload dep artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: deps-macos-arm64-${{ matrix.dep.name }}
+          path: prebuilt/.deps/macos-arm64/
+          retention-days: 7
+
+  # ── macOS ARM64 — FFmpeg (native, after deps matrix) ─────────────────────────
+  macos:
+    name: FFmpeg — macos-arm64 (${{ matrix.type }}, ${{ matrix.profile }})
+    runs-on: macos-14
+    needs: macos-deps
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # one job per build type x profile (parallel); manual runs may pick one of each
+        type: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.types != 'both') && format('["{0}"]', inputs.types) || '["static","shared"]') }}
+        profile: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.profiles != 'all') && format('["{0}"]', inputs.profiles) || '["full","lgpl","minimal"]') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Cache key
+        id: key
+        run: echo "key=ffmpeg-macos-arm64-${{ matrix.type }}-${{ matrix.profile }}-$(bash .github/scripts/cache_key.sh macos-arm64 ffmpeg ${{ matrix.type }} ${{ matrix.profile }})" >> "$GITHUB_OUTPUT"
+
+      - name: Restore cached build
+        id: cache
+        uses: actions/cache/restore@v5
+        with:
+          path: prebuilt/macos-arm64/${{ matrix.type }}/${{ matrix.profile }}/
+          key: ${{ steps.key.outputs.key }}
+
+      - name: Checkout submodules
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: git submodule update --init --recursive --depth 1
+
+      - name: Install prerequisites
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: brew install cmake pkg-config autoconf automake libtool ninja meson
+
+      - name: Download deps from matrix jobs
+        uses: actions/download-artifact@v7
+        with:
+          pattern: deps-macos-arm64-*
+          path: prebuilt/.deps/macos-arm64/
+          merge-multiple: true
+
+      - name: Build FFmpeg (macos-arm64 ${{ matrix.type }})
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          shared=""; [ "${{ matrix.type }}" = shared ] && shared=--shared
+          bash build/build_macos.sh --ffmpeg ${{ matrix.profile }} $shared
+
+      - name: Consumer test (find_package(CustomFFmpeg), C and C++)
+        run: |
+          bash tests/consumer/run.sh prebuilt/macos-arm64/${{ matrix.type }}/${{ matrix.profile }}
+
+      # FATE without samples (internal tests, checkasm, generated data) on
+      # fresh static builds with programs
+      - name: FATE
+        if: steps.cache.outputs.cache-hit != 'true' && matrix.type == 'static' && matrix.profile != 'minimal'
+        run: bash tests/fate/run_fate.sh prebuilt/.build/ffmpeg-macos-arm64-${{ matrix.type }}-${{ matrix.profile }}
+
+      - name: Save build cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: prebuilt/macos-arm64/${{ matrix.type }}/${{ matrix.profile }}/
+          key: ${{ steps.key.outputs.key }}
+
+      - name: Upload FFmpeg artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: ffmpeg-macos-arm64-${{ matrix.type }}-${{ matrix.profile }}
+          path: prebuilt/macos-arm64/${{ matrix.type }}/${{ matrix.profile }}/
+          retention-days: 7

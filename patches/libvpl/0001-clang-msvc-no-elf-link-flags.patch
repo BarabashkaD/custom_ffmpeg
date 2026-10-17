@@ -1,0 +1,14 @@
+diff --git a/cmake/CompileOptions.cmake b/cmake/CompileOptions.cmake
+index 02926c4..101e675 100644
+--- a/cmake/CompileOptions.cmake
++++ b/cmake/CompileOptions.cmake
+@@ -58,7 +58,8 @@ else()
+   if(NOT MINGW)
+     add_compile_options("-fstack-protector-strong")
+   endif()
+-  if(NOT MINGW)
++  # ELF linker options: not for clang targeting the MSVC ABI (lld-link)
++  if(NOT WIN32)
+     add_link_options("-Wl,-z,relro,-z,now,-z,noexecstack")
+   endif()
+   add_compile_options("-Wall")

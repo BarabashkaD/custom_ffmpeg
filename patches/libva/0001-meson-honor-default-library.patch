@@ -1,0 +1,29 @@
+meson: build libva and libva-drm with library() instead of shared_library()
+
+Upstream hard-codes shared_library(), so --default-library=static still
+produces only .so files. custom_ffmpeg links its dependencies statically
+(static + PIC); with library() meson's default_library option decides.
+The libva.syms version script and libva.def only apply to the shared case.
+
+diff --git a/va/meson.build b/va/meson.build
+index 6005cf8..140eeea 100644
+--- a/va/meson.build
++++ b/va/meson.build
+@@ -68,7 +68,7 @@ endif
+
+ install_headers(libva_headers, subdir : 'va')
+
+-libva = shared_library(
++libva = library(
+   'va',
+   sources : libva_sources +
+             libva_headers +
+@@ -121,7 +121,7 @@ if WITH_DRM
+
+   install_headers(libva_drm_headers, subdir : 'va')
+
+-  libva_drm = shared_library(
++  libva_drm = library(
+     'va-drm',
+     sources : libva_drm_sources +
+               libva_drm_headers +

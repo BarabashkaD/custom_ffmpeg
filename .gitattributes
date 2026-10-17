@@ -1,0 +1,18 @@
+* text=auto
+
+*.sh    text eol=lf
+*.bash  text eol=lf
+
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+Dockerfile text eol=lf
+
+# Patches must be LF — applied inside Linux container
+patches/**  text eol=lf
+
+# Submodule sources — always LF to avoid CRLF breaking shell scripts on Linux
+sources/**  text eol=lf

@@ -1,0 +1,9 @@
+generated/
+prebuilt/
+*.env
+winsdk-casefold.img
+
+tmp/
+profiles/custom.cmake
+__pycache__/
+CLAUDE.local.md

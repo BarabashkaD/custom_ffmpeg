@@ -1,0 +1,59 @@
+[submodule "sources/ffmpeg"]
+	path = sources/ffmpeg
+	url = https://github.com/FFmpeg/FFmpeg
+	shallow = true
+[submodule "sources/x264"]
+	path = sources/x264
+	url = https://code.videolan.org/videolan/x264.git
+	branch = stable
+[submodule "sources/x265"]
+	path = sources/x265
+	url = https://bitbucket.org/multicoreware/x265_git.git
+[submodule "sources/libvpx"]
+	path = sources/libvpx
+	url = https://github.com/webmproject/libvpx.git
+[submodule "sources/opus"]
+	path = sources/opus
+	url = https://github.com/xiph/opus.git
+[submodule "sources/libvorbis"]
+	path = sources/libvorbis
+	url = https://github.com/xiph/vorbis.git
+[submodule "sources/libogg"]
+	path = sources/libogg
+	url = https://github.com/xiph/ogg.git
+[submodule "sources/libwebp"]
+	path = sources/libwebp
+	url = https://github.com/webmproject/libwebp.git
+[submodule "sources/zlib"]
+	path = sources/zlib
+	url = https://github.com/madler/zlib.git
+[submodule "sources/svtav1"]
+	path = sources/svtav1
+	url = https://gitlab.com/AOMediaCodec/SVT-AV1.git
+[submodule "sources/dav1d"]
+	path = sources/dav1d
+	url = https://code.videolan.org/videolan/dav1d.git
+[submodule "sources/ffnvcodec"]
+	path = sources/ffnvcodec
+	url = https://github.com/FFmpeg/nv-codec-headers.git
+[submodule "sources/checkasm"]
+	path = sources/checkasm
+	url = https://code.videolan.org/videolan/checkasm.git
+[submodule "sources/libvpl"]
+	path = sources/libvpl
+	url = https://github.com/intel/libvpl
+	shallow = true
+[submodule "sources/libva"]
+	path = sources/libva
+	url = https://github.com/intel/libva.git
+[submodule "sources/libdrm"]
+	path = sources/libdrm
+	url = https://gitlab.freedesktop.org/mesa/drm.git
+[submodule "sources/libva-utils"]
+	path = sources/libva-utils
+	url = https://github.com/intel/libva-utils.git
+[submodule "sources/libaom"]
+	path = sources/libaom
+	url = https://aomedia.googlesource.com/aom
+	branch = av1-normative
+	shallow = true

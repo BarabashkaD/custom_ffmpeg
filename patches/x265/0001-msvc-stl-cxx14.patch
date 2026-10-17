@@ -1,0 +1,15 @@
+diff --git a/source/CMakeLists.txt b/source/CMakeLists.txt
+index 6eb5f0e..e2d247c 100755
+--- a/source/CMakeLists.txt
++++ b/source/CMakeLists.txt
+@@ -285,6 +285,10 @@ if(GCC)
+             message(FATAL_ERROR "gcc version above 4.8 required to support hdr10plus")
+         endif()
+         add_definitions(-std=gnu++11)
++    elseif(WIN32)
++        # clang targeting the MSVC ABI uses the MSVC STL, which requires C++14.
++        # C++ only: the Windows CLI also compiles C sources (compat/getopt).
++        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-std=gnu++14>)
+     else()
+         add_definitions(-std=gnu++98)
+     endif()

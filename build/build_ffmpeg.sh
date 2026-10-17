@@ -1,0 +1,381 @@
+#!/usr/bin/env bash
+# build_ffmpeg.sh — configures and builds FFmpeg.
+# Works inside the Docker container (default) and natively on Linux/macOS.
+#
+# Usage: bash /src/build/build_ffmpeg.sh /configs/<platform>-<type>-<profile>.env
+#
+# Docker mounts expected:
+#   /src        — repo root (sources/, compat/, build/, profiles/)
+#   /winsdk     — Windows SDK bind mount [win64 only]
+#   /artifacts  — output + writable scratch
+#   /configs    — generated .env files
+#
+# Native use (Linux/macOS):
+#   REPO_ROOT=/path/to/repo ARTIFACTS_ROOT=/path/to/output \
+#     bash build/build_ffmpeg.sh generated/linux-x64-static-full.env
+set -euo pipefail
+
+ENV_FILE="${1:?Usage: $0 <config.env>}"
+# shellcheck source=/dev/null
+source "$ENV_FILE"
+
+# REPO_ROOT: root of the custom_ffmpeg repo.  Default: /src (Docker mount).
+REPO_ROOT="${REPO_ROOT:-${SRC_ROOT:-/src}}"
+# ARTIFACTS_ROOT: where output and scratch live.  Default: /artifacts (Docker mount).
+ARTIFACTS_ROOT="${ARTIFACTS_ROOT:-/artifacts}"
+export REPO_ROOT
+
+# shellcheck source=build/lib/paths.sh
+source "${REPO_ROOT}/build/lib/paths.sh"
+
+: "${TARGET_PLATFORM:?}"
+: "${TARGET_OS:?}"
+: "${TARGET_TRIPLE:?}"
+: "${ARCH:?}"
+: "${BUILD_TYPE:?}"
+: "${PROFILE:?}"
+
+echo "=== custom_ffmpeg build ==="
+echo "  Platform : ${TARGET_PLATFORM}"
+echo "  Type     : ${BUILD_TYPE}"
+echo "  Profile  : ${PROFILE}"
+echo "==========================="
+
+OUT="${ARTIFACTS_ROOT}/${TARGET_PLATFORM}/${BUILD_TYPE}/${PROFILE}"
+DEPS_PREFIX="${ARTIFACTS_ROOT}/.deps/${TARGET_PLATFORM}"
+COMPAT_TMPLIB="${ARTIFACTS_ROOT}/.compat-lib"
+
+# BUILD_ROOT: build trees + TMPDIR. win64 runs in Docker where /src and
+# /artifacts are Windows bind mounts — compiling on them is ~5x slower (CI:
+# make 39 min vs 7 min on Linux), so build on the container's native FS.
+# build.ps1 mounts a named volume at /build to keep incremental rebuilds.
+if [[ "${TARGET_OS}" == "win64" ]]; then
+    BUILD_ROOT="${BUILD_ROOT:-/build}"
+else
+    BUILD_ROOT="${BUILD_ROOT:-${ARTIFACTS_ROOT}/.build}"
+fi
+# One build dir per variant: full and minimal can be rebuilt incrementally side by side
+BUILD_DIR="${BUILD_ROOT}/ffmpeg-${TARGET_PLATFORM}-${BUILD_TYPE}-${PROFILE}"
+
+export TMPDIR="${BUILD_ROOT}/tmp"
+mkdir -p "$OUT" "$BUILD_DIR" "$DEPS_PREFIX" "$COMPAT_TMPLIB" "$TMPDIR"
+
+# ── Compiler flags ────────────────────────────────────────────────────────────
+# TARGET_CFLAGS: cross-compilation flags only (--target, -isystem).
+# Optimization (-O3) is added separately so build_deps.sh can combine them.
+TARGET_CFLAGS=""
+LDFLAGS=""
+EXTRA_CONF=""
+WINDRES_ARGS=()
+NASM_FLAGS=""
+
+if [[ "${TARGET_OS}" == "win64" ]]; then
+    # Resolve SDK version from the kits root mounted at /winsdk/kits
+    SDK_VER=$(ls /winsdk/kits/Include | grep -E '^[0-9]' | sort -rV | awk 'NR==1')
+    echo "  Windows SDK : ${SDK_VER}"
+
+    WINSDK_INC=/winsdk/kits/Include/${SDK_VER}
+    WINSDK_LIB=/winsdk/kits/Lib/${SDK_VER}
+    MSVC_INC=/winsdk/msvc/include
+    MSVC_LIB_DIR=/winsdk/msvc/lib/x64
+
+    # clang's own headers must precede the MSVC ones (clang-cl order): MSVC's
+    # <emmintrin.h> etc. declare SSE intrinsics as extern functions, which
+    # then fail to link (undefined symbol: _mm_setzero_si128).
+    CLANG_INC="$(clang -print-resource-dir)/include"
+
+    TARGET_CFLAGS="--target=${TARGET_TRIPLE} \
+        -isystem ${REPO_ROOT}/compat/include \
+        -isystem ${CLANG_INC} \
+        -isystem ${MSVC_INC} \
+        -isystem ${WINSDK_INC}/ucrt \
+        -isystem ${WINSDK_INC}/um \
+        -isystem ${WINSDK_INC}/shared"
+
+    # Lowercase symlinks for .lib files lld-link searches by lowercase name
+    bash "${REPO_ROOT}/compat/create_lib_symlinks.sh" "${WINSDK_LIB}/um/x64" "$COMPAT_TMPLIB"
+
+    LDFLAGS="-fuse-ld=lld \
+        -L${MSVC_LIB_DIR} \
+        -L${WINSDK_LIB}/ucrt/x64 \
+        -L${WINSDK_LIB}/um/x64 \
+        -L${COMPAT_TMPLIB} \
+        -L${DEPS_PREFIX}/lib"
+
+    # NASM output format for Windows x64 PE
+    NASM_FLAGS="-f win64"
+
+    EXTRA_CONF="--enable-cross-compile --cross-prefix=llvm-"
+    # Shared builds compile a version resource into each DLL: llvm-windres
+    # preprocesses the .rc with clang and needs the PE target + SDK headers
+    WINDRES_ARGS=(--windres="llvm-windres --target=pe-x86-64 -I${REPO_ROOT}/compat/include \
+-I${MSVC_INC} -I${WINSDK_INC}/ucrt -I${WINSDK_INC}/um -I${WINSDK_INC}/shared")
+
+elif [[ "${TARGET_OS}" == "linux" ]]; then
+    LDFLAGS="-L${DEPS_PREFIX}/lib"
+    NASM_FLAGS="-f elf64"
+
+elif [[ "${TARGET_OS}" == "darwin" ]]; then
+    TARGET_CFLAGS="--target=${TARGET_TRIPLE}"
+    LDFLAGS="-L${DEPS_PREFIX}/lib"
+    NASM_FLAGS="-f macho64"
+    EXTRA_CONF="--enable-cross-compile"
+fi
+
+export PKG_CONFIG_PATH="${DEPS_PREFIX}/lib/pkgconfig"
+export PKG_CONFIG_LIBDIR="${DEPS_PREFIX}/lib/pkgconfig"
+
+# ── Build dependencies ────────────────────────────────────────────────────────
+# Export all vars so build_deps.sh and individual dep scripts can inherit them
+export TARGET_OS TARGET_TRIPLE ARCH DEPS_PREFIX TARGET_CFLAGS LDFLAGS
+export LAME_VERSION LAME_URL LAME_TARBALL LAME_SHA256
+# SRC for dep scripts = sources/ subdirectory of the repo root
+export SRC="${REPO_ROOT}/sources"
+# Export resolved SDK paths so dep scripts (x264.sh etc.) can reference them
+if [[ "${TARGET_OS}" == "win64" ]]; then
+    export MSVC_INCLUDE="${MSVC_INC}"
+    export MSVC_LIB="${MSVC_LIB_DIR}"
+    export WINSDK_INC_UCRT="${WINSDK_INC}/ucrt"
+    export WINSDK_INC_UM="${WINSDK_INC}/um"
+    export WINSDK_INC_SHARED="${WINSDK_INC}/shared"
+    export WINSDK_INC_WINRT="${WINSDK_INC}/winrt"
+    export WINSDK_LIB_UCRT="${WINSDK_LIB}/ucrt/x64"
+    export WINSDK_LIB_UM="${WINSDK_LIB}/um/x64"
+fi
+
+# Pass optional dep list from env: ONLY_DEPS="x264 x265" build_ffmpeg.sh ...
+if [[ "${SKIP_DEPS:-0}" != "1" ]]; then
+    # shellcheck disable=SC2086
+    bash "${REPO_ROOT}/build/build_deps.sh" ${ONLY_DEPS:-}
+else
+    echo "=== SKIP_DEPS=1 — skipping dependency build stage ==="
+fi
+
+# Skip FFmpeg configure/build when only building specific deps
+if [[ -n "${ONLY_DEPS:-}" ]]; then
+    echo ""
+    echo "=== ONLY_DEPS set — skipping FFmpeg configure/build ==="
+    exit 0
+fi
+
+# ── FFmpeg sources ────────────────────────────────────────────────────────────
+# win64: export the submodule onto the native FS (export_src: ~1 s via git
+# archive vs ~21 s copying ~10k files over the bind mount; incremental-safe).
+FFMPEG_SRC="${REPO_ROOT}/sources/ffmpeg"
+if [[ "${TARGET_OS}" == "win64" ]]; then
+    FFMPEG_SRC="${BUILD_ROOT}/src/ffmpeg"
+    export_src "${REPO_ROOT}/sources/ffmpeg" "${FFMPEG_SRC}"
+    # The export has no .git: pin the version string version.sh derives from
+    # git (e.g. git-2026-06-11-e4c6317) instead of the RELEASE fallback
+    if [[ ! -f "${FFMPEG_SRC}/VERSION" ]]; then
+        sh "${REPO_ROOT}/sources/ffmpeg/ffbuild/version.sh" "${REPO_ROOT}/sources/ffmpeg" \
+            > "${FFMPEG_SRC}/VERSION"
+    fi
+fi
+
+# Build-machine roots → fixed names in debug info / __FILE__ (same names the
+# Docker build uses, so every platform's libraries look alike)
+ROOT_MAP=("${BUILD_ROOT}=/build" "${ARTIFACTS_ROOT}=/artifacts" "${REPO_ROOT}=/src")
+PATH_MAP_FLAGS="$(path_map_flags "${ROOT_MAP[@]}")"
+
+# ── Configure FFmpeg ──────────────────────────────────────────────────────────
+echo "=== Configuring FFmpeg ==="
+cd "$BUILD_DIR"
+
+# config.h embeds the configure command line (avutil_configuration()) and the
+# data dir — both carry absolute build paths. Remember the previous config.h so
+# the rewrite below can keep its mtime when nothing changed (incremental make).
+[[ -f config.h ]] && cp -p config.h config.h.prev
+
+# Windows: LLVM tools produce COFF archives.  Linux/macOS: system binutils —
+# Ubuntu's clang package does not install unversioned llvm-ar / llvm-nm.
+if [[ "${TARGET_OS}" == "win64" ]]; then
+    FFMPEG_AR="llvm-ar"
+    FFMPEG_RANLIB="llvm-ranlib"
+    FFMPEG_NM="llvm-nm"
+    FFMPEG_STRIP="llvm-strip"
+else
+    FFMPEG_AR="${AR:-ar}"
+    FFMPEG_RANLIB="${RANLIB:-ranlib}"
+    FFMPEG_NM="${NM:-nm}"
+    FFMPEG_STRIP="${STRIP:-strip}"
+fi
+
+# x86 SIMD via NASM; macOS ARM64 uses clang's integrated assembler
+if [[ "${ARCH}" == "x86_64" ]]; then
+    FFMPEG_AS_FLAGS="--x86asmexe=nasm --enable-x86asm"
+else
+    FFMPEG_AS_FLAGS=""
+fi
+
+# Linux shared: libavcodec.so etc. find their sibling FFmpeg libraries next to
+# themselves (RUNPATH=$ORIGIN) instead of relying on the executable having
+# loaded them first. Escaped for configure's eval (\$), FFmpeg's makefiles
+# (LDFLAGS is expanded twice: $$$$ -> $) and the shell (single quotes):
+# the value passed is  -Wl,-rpath,'\$\$\$\$ORIGIN'
+FFMPEG_EXTRA_LDFLAGS=""
+if [[ "${TARGET_OS}" == "linux" && "${BUILD_TYPE}" == "shared" ]]; then
+    FFMPEG_EXTRA_LDFLAGS="-Wl,-rpath,'\\\$\\\$\\\$\\\$ORIGIN'"
+fi
+
+# Deps are static libraries for both build types: pkg-config must emit
+# Libs.private (e.g. -lstdc++ for x265, -lm) — a shared FFmpeg links them in too
+PKG_CONFIG_FLAGS="--pkg-config-flags=--static"
+
+# shellcheck disable=SC2086
+bash "${FFMPEG_SRC}/configure" \
+    --prefix="${OUT}" \
+    --target-os="${TARGET_OS}" \
+    --arch="${ARCH}" \
+    --cc="clang ${TARGET_CFLAGS}" \
+    --cxx="clang++ ${TARGET_CFLAGS}" \
+    --ld="clang ${TARGET_CFLAGS} ${LDFLAGS}" \
+    --ar="${FFMPEG_AR}" \
+    --ranlib="${FFMPEG_RANLIB}" \
+    --nm="${FFMPEG_NM}" \
+    --strip="${FFMPEG_STRIP}" \
+    --pkg-config=pkg-config \
+    ${PKG_CONFIG_FLAGS} \
+    --extra-cflags="-O3 -I${DEPS_PREFIX}/include ${PATH_MAP_FLAGS}" \
+    --extra-ldflags="-L${DEPS_PREFIX}/lib ${FFMPEG_EXTRA_LDFLAGS}" \
+    --enable-asm \
+    ${FFMPEG_AS_FLAGS} \
+    ${EXTRA_CONF} \
+    "${WINDRES_ARGS[@]+"${WINDRES_ARGS[@]}"}" \
+    ${FFMPEG_CONFIGURE_FLAGS}
+
+# Most specific root first (natively BUILD_ROOT ⊂ ARTIFACTS_ROOT ⊂ REPO_ROOT)
+replace_paths config.h "${ROOT_MAP[@]}"
+if [[ -f config.h.prev ]] && cmp -s config.h config.h.prev; then
+    touch -r config.h.prev config.h
+fi
+rm -f config.h.prev
+
+# configure drops an encoder silently when its link probe fails — fail here instead.
+# Libraries are in config.h, codecs/filters in config_components.h (FFmpeg >= 5.1).
+# Detected system features are HAVE_* (e.g. vaapi_drm: libva-drm found and linked).
+missing=""
+for name in ${FFMPEG_REQUIRED_CONFIG:-}; do
+    grep -qsE "^#define (CONFIG|HAVE)_${name} 1" config.h config_components.h \
+        || missing="${missing} ${name}"
+done
+if [[ -n "$missing" ]]; then
+    echo "ERROR: required components disabled by configure:${missing}" >&2
+    echo "       see ${BUILD_DIR}/ffbuild/config.log" >&2
+    exit 1
+fi
+echo "=== Required components enabled: ${FFMPEG_REQUIRED_CONFIG:-<none>} ==="
+
+# The profile states its license: a GPL part enabled by mistake must not end
+# up in an LGPL build (or the other way round)
+license=$(sed -n 's/^#define FFMPEG_LICENSE "\(.*\)"$/\1/p' config.h)
+if [[ -n "${FFMPEG_EXPECTED_LICENSE:-}" && "$license" != "${FFMPEG_EXPECTED_LICENSE}" ]]; then
+    echo "ERROR: configure reports license '$license', profile expects '${FFMPEG_EXPECTED_LICENSE}'" >&2
+    exit 1
+fi
+echo "=== License: ${license} ==="
+
+JOBS="${JOBS:-$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)}"
+
+# ── Build ─────────────────────────────────────────────────────────────────────
+echo "=== Building FFmpeg (${JOBS} jobs) ==="
+# win64 shared: compat/windows/makedef writes each DLL's .def from the objects
+# with $AR/$NM when set (otherwise it needs MSVC's lib.exe/dumpbin.exe). Set
+# them on that command only: FFmpeg's quiet mode overrides make's AR with an
+# "@printf ..." wrapper, which an exported AR would inherit.
+if [[ "${TARGET_OS}" == "win64" && "${BUILD_TYPE}" == "shared" ]]; then
+    sed -i.bak "s|^SLIB_CREATE_DEF_CMD=|SLIB_CREATE_DEF_CMD=AR=\"${FFMPEG_AR}\" NM=\"${FFMPEG_NM}\" |" \
+        ffbuild/config.mak
+    rm -f ffbuild/config.mak.bak
+fi
+make -j"${JOBS}"
+make install
+
+# win64 shared: FFmpeg installs the import libs next to the DLLs (bin/);
+# consumers (and FindCustomFFmpeg) expect them in lib/
+if [[ "${TARGET_OS}" == "win64" && "${BUILD_TYPE}" == "shared" ]]; then
+    mv -f "${OUT}"/bin/*.lib "${OUT}/lib/"
+fi
+
+# Public headers that include dependency headers: libavutil/hwcontext_amf.h
+# includes <AMF/core/*.h>, hwcontext_qsv.h <mfxvideo.h> (libvpl's include/vpl,
+# which FindCustomFFmpeg adds as an include dir when present),
+# hwcontext_vaapi.h <va/va.h> (libva, Linux). Ship those
+# header trees with the artifact, so consumers of the hwcontext API compile
+# against the versions FFmpeg was built with (FindCustomFFmpeg exports only
+# the artifact's include dir). Only when the feature was configured in.
+ship_dep_headers() {   # <header-dir> <config.h name>
+    rm -rf "${OUT}/include/$1"
+    if grep -q "^#define CONFIG_$2 1" config.h && [[ -d "${DEPS_PREFIX}/include/$1" ]]; then
+        cp -a "${DEPS_PREFIX}/include/$1" "${OUT}/include/"
+    fi
+}
+ship_dep_headers AMF AMF
+ship_dep_headers vpl LIBVPL
+ship_dep_headers va VAAPI
+
+# macOS shared: dylibs carry their install path as install_name and in every
+# dependent dylib — make them @rpath-relative (relocatable, no build paths)
+if [[ "${TARGET_OS}" == "darwin" && "${BUILD_TYPE}" == "shared" ]]; then
+    for dylib in "${OUT}"/lib/*.dylib; do
+        [[ -L "$dylib" ]] && continue
+        install_name_tool -id "@rpath/$(basename "$dylib")" "$dylib"
+        otool -L "$dylib" | awk 'NR > 1 {print $1}' | grep -F "${OUT}/lib/" | while read -r dep; do
+            install_name_tool -change "$dep" "@rpath/$(basename "$dep")" "$dylib"
+        done
+    done
+fi
+
+# Relocatable .pc files: the prefix is a build-time path (/artifacts/... in
+# Docker). OUT is <root>/<platform>/<type>/<profile>, deps live in
+# <root>/.deps/<platform> — express both relative to ${pcfiledir}. Dep -L
+# flags come from the deps' own (already relocated) .pc files as
+# <deps>/lib/pkgconfig/../../lib, or from --extra-ldflags as <deps>/lib.
+DEPS_LIB_REL="\${pcfiledir}/../../../../.deps/${TARGET_PLATFORM}/lib"
+for pc in "${OUT}"/lib/pkgconfig/*.pc; do
+    replace_paths "$pc" \
+        "${DEPS_PREFIX}/lib/pkgconfig/../../lib=${DEPS_LIB_REL}" \
+        "${DEPS_PREFIX}/lib=${DEPS_LIB_REL}" \
+        "${OUT}=\${pcfiledir}/../.."
+done
+
+check_no_local_paths "${OUT}" "${DEPS_PREFIX}"
+
+# ── Test build (FFMPEG_TESTS=1, win64) ────────────────────────────────────────
+# FATE drives tests with make + shell scripts. For the Windows build that runs
+# in WSL (tests/fate/run_fate.sh --windows), which starts every .exe natively
+# on Windows — but has neither the compiler nor the SDK of this container. So
+# build everything FATE executes here (programs, tools, test programs,
+# checkasm; the test data generators as static host programs that run on any
+# Linux), then export the tree to ARTIFACTS_ROOT/.fate/<variant>: on the
+# Windows drive, reachable from both WSL and Windows. The .d dependency files
+# (container header paths) are dropped, so make in WSL considers everything up
+# to date and only runs tests; run_fate.sh points the recorded source path at
+# the exported sources (<export>/src/ffmpeg).
+if [[ "${TARGET_OS}" == "win64" && "${FFMPEG_TESTS:-0}" == "1" ]]; then
+    echo "=== Building FATE prerequisites ==="
+    # The API test programs (tests/api) are not part of "build"; their list
+    # exists only inside the Makefile — expose it through a helper target
+    printf 'fate-apitestprogs: $(APITESTPROGS)\n' > fate-prereq.mak
+    make -j"${JOBS}" -f Makefile -f fate-prereq.mak build checkasm fate-apitestprogs
+    rm -f fate-prereq.mak
+    make -j"${JOBS}" HOSTLDFLAGS=-static tests/audiogen tests/videogen tests/rotozoom \
+        tests/tiny_psnr tests/tiny_ssim tests/base64 tests/audiomatch
+
+    variant="$(basename "${BUILD_DIR}")"
+    fate_root="${ARTIFACTS_ROOT}/.fate"
+    echo "=== Exporting FATE tree -> ${fate_root}/${variant} ==="
+    rm -rf "${fate_root:?}/${variant}" "${fate_root}/src"
+    mkdir -p "${fate_root}"
+    tar -C "${BUILD_ROOT}" -cf - "${variant}" src/ffmpeg | tar -C "${fate_root}" -xf -
+    find "${fate_root}/${variant}" -name '*.d' -delete
+    ln -sfn ../src/ffmpeg "${fate_root}/${variant}/src"
+    # Files written here belong to root (Docker records that in NTFS metadata),
+    # but FATE runs as the WSL user and writes into the tree (logs, test outputs)
+    chmod -R a+rwX "${fate_root}/${variant}"
+fi
+
+echo ""
+echo "=== FFmpeg build complete ==="
+echo "    Output: $OUT"
+ls "${OUT}/lib/" 2>/dev/null || true

@@ -1,0 +1,35 @@
+# Copy this file to custom.cmake and adjust it, then build with the profile
+# name "custom":
+#   .\scripts\build.ps1 -Profile custom                (Windows target)
+#   bash build/build_linux.sh --ffmpeg custom          (Linux)
+#   bash build/build_macos.sh --ffmpeg custom          (macOS)
+# See lgpl.cmake / full.cmake for a complete example.
+
+set(FFMPEG_DISABLE_EVERYTHING ON)
+set(FFMPEG_DISABLE_PROGRAMS   ON)
+set(FFMPEG_DISABLE_DOC        ON)
+
+set(FFMPEG_ENABLE_LIBS
+    avutil
+    avcodec
+    swscale
+)
+
+# Optional: specific components when FFMPEG_DISABLE_EVERYTHING=ON
+# set(FFMPEG_ENABLE_DECODERS h264 hevc)
+# set(FFMPEG_ENABLE_ENCODERS png)
+# set(FFMPEG_ENABLE_PROTOCOLS file pipe)
+
+# Feature set independent of the build machine: enable OS integrations
+# explicitly (per platform) instead of relying on configure's autodetection
+set(FFMPEG_CONFIGURE_EXTRA --disable-autodetect)
+# set(FFMPEG_CONFIGURE_EXTRA_WINDOWS --enable-d3d11va)
+# set(FFMPEG_CONFIGURE_EXTRA_MACOS   --enable-videotoolbox)
+# set(FFMPEG_CONFIGURE_EXTRA_LINUX   --enable-v4l2-m2m)
+
+# Components that must end up enabled (CONFIG_<NAME> or HAVE_<NAME>, lower case) — the build
+# fails if configure dropped one; also per platform (_WINDOWS/_LINUX/_MACOS)
+# set(FFMPEG_REQUIRED h264_decoder png_encoder)
+
+# License the result must have (checked against configure's verdict)
+set(FFMPEG_EXPECTED_LICENSE "LGPL version 2.1 or later")

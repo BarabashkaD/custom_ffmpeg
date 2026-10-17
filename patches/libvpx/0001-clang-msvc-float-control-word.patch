@@ -1,0 +1,16 @@
+diff --git a/vpx_ports/vpx_ports.mk b/vpx_ports/vpx_ports.mk
+index b0ad210..cdf58e5 100644
+--- a/vpx_ports/vpx_ports.mk
++++ b/vpx_ports/vpx_ports.mk
+@@ -27,7 +27,10 @@ PORTS_SRCS-$(HAVE_MMX) += emms_mmx.asm
+ endif
+ 
+ ifeq ($(VPX_ARCH_X86_64),yes)
+-PORTS_SRCS-$(CONFIG_MSVS) += float_control_word.asm
++# clang targeting the MSVC ABI does not define __GNUC__, so x86.h references
++# vpx_winx64_fldcw/fstcw even without CONFIG_MSVS. The asm body is guarded by
++# LIBVPX_YASM_WIN64, so building it unconditionally is harmless elsewhere.
++PORTS_SRCS-yes += float_control_word.asm
+ endif
+ 
+ ifeq ($(VPX_ARCH_X86)$(VPX_ARCH_X86_64),yes)
