@@ -50,6 +50,10 @@ set(GLIBC_MAX_VERSION "2.39")
 # (CI) does not have; x265Version.txt is written from this value instead
 set(X265_VERSION     "4.2")
 
+# Opus takes its version from git (update_version) or a package_version file;
+# the export has no .git, so build/deps/opus.sh writes the file from this
+set(OPUS_VERSION     "1.6.1")
+
 # mp3lame — official SourceForge archive (CVS-based project, no git)
 set(LAME_VERSION     "3.100")
 set(LAME_URL         "https://sourceforge.net/projects/lame/files/lame/3.100/lame-3.100.tar.gz/download")

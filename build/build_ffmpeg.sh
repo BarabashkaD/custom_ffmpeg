@@ -149,12 +149,14 @@ fi
 # Linux shared: libavcodec.so etc. find their sibling FFmpeg libraries next to
 # themselves (RUNPATH=$ORIGIN) instead of relying on the executable having
 # loaded them first. Escaped for configure's eval (\$), FFmpeg's makefiles
-# (LDFLAGS is expanded twice: $$$$ -> $) and the shell (single quotes):
-# the value passed is  -Wl,-rpath,'\$\$\$\$ORIGIN'
-FFMPEG_EXTRA_LDFLAGS=""
-# $ORIGIN/../lib: the programs in bin/ find the libraries in lib/ the same way.
+# (the shared-library link line is expanded twice: $$$$ -> $) and the shell (single
+# quotes): the value passed is  -Wl,-rpath,'\$\$\$\$ORIGIN'
+# The programs in bin/ find the libraries in lib/ through RUNPATH=$ORIGIN/../lib
+# (--extra-ldexeflags: expanded once by make, so one $$ less).
+FFMPEG_RPATH_ARGS=()
 if [[ "${TARGET_OS}" == "linux" && "${BUILD_TYPE}" == "shared" ]]; then
-    FFMPEG_EXTRA_LDFLAGS="-Wl,-rpath,'\\\$\\\$\\\$\\\$ORIGIN:\\\$\\\$\\\$\\\$ORIGIN/../lib'"
+    FFMPEG_RPATH_ARGS=(--extra-ldsoflags="-Wl,-rpath,'\\\$\\\$\\\$\\\$ORIGIN'"
+                       --extra-ldexeflags="-Wl,-rpath,'\\\$\\\$ORIGIN/../lib'")
 fi
 
 # Deps are static libraries for both build types: pkg-config must emit
@@ -176,7 +178,8 @@ bash "${FFMPEG_SRC}/configure" \
     --pkg-config=pkg-config \
     ${PKG_CONFIG_FLAGS} \
     --extra-cflags="-O3 -I${DEPS_PREFIX}/include ${PATH_MAP_FLAGS}" \
-    --extra-ldflags="-L${DEPS_PREFIX}/lib ${FFMPEG_EXTRA_LDFLAGS}" \
+    --extra-ldflags="-L${DEPS_PREFIX}/lib" \
+    "${FFMPEG_RPATH_ARGS[@]+"${FFMPEG_RPATH_ARGS[@]}"}" \
     --enable-asm \
     ${FFMPEG_AS_FLAGS} \
     ${EXTRA_CONF} \
@@ -348,7 +351,7 @@ if [[ "${TARGET_OS}" == "linux" ]]; then
         echo "ERROR: outputs need glibc ${glibc_need}, the supported minimum is ${GLIBC_MAX_VERSION}" >&2
         exit 1
     fi
-    target_note="glibc ${glibc_need:-(static libraries only)} (supported: ${GLIBC_MAX_VERSION} and newer)"
+    target_note="glibc >= ${glibc_need:-? (static libraries only)}; supported: ${GLIBC_MAX_VERSION} and newer"
 elif [[ "${TARGET_OS}" == "darwin" ]]; then
     # LC_BUILD_VERSION minos of every program and dylib
     macos_need=$(for f in "${OUT}"/bin/* "${OUT}"/lib/*.dylib; do
@@ -386,7 +389,9 @@ mkdir -p "${OUT}/share/custom_ffmpeg"
         [[ -z "$v" && "$d" == mp3lame ]] && v="${LAME_VERSION:-}"
         [[ -z "$v" && "$d" == amf ]] && v="headers $(sed -nE 's/^#define AMF_VERSION_(MAJOR|MINOR|RELEASE)[[:space:]]+([0-9]+).*/\2/p' \
             "${DEPS_PREFIX}/include/AMF/core/Version.h" | paste -sd. -)"
-        printf '  %-10s %s\n' "$d" "${v:-?}"
+        # the pinned commit (the gitlink — no submodule checkout needed)
+        sha=$(git -C "${REPO_ROOT}" rev-parse --short=9 "HEAD:sources/$d" 2>/dev/null || true)
+        printf '  %-10s %s%s\n' "$d" "${v:-?}" "${sha:+ @ $sha}"
     done
 } > "${OUT}/share/custom_ffmpeg/build-info.txt"
 cat "${OUT}/share/custom_ffmpeg/build-info.txt"

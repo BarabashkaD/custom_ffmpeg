@@ -10,6 +10,11 @@ fi
 echo "=== opus ==="
 SRC_DIR=$(dep_src opus)
 
+# The export has no .git: configure reads the version from package_version
+# (otherwise "unknown" in opus.pc and opus_get_version_string()).
+# AUTO_UPDATE=no keeps update_version from asking an enclosing repository.
+printf 'AUTO_UPDATE=no\nPACKAGE_VERSION="%s"\n' "$(versions_var OPUS_VERSION)" > "$SRC_DIR/package_version"
+
 # autogen.sh downloads the DNN model tarball into the source dir unless it is
 # already there (checksum-verified either way): keep a copy in DOWNLOADS so a
 # fresh export does not download it again
