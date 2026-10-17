@@ -399,14 +399,10 @@ jobs:
 
           # wslpath converts Windows backslash paths → Linux /mnt/... paths
           REPO=$(wslpath '${{ github.workspace }}')
-          # Toolchain files from the staged tars onto WSL's ext4: the container then
-          # reads them natively instead of through the 9p drive mounts
+          # Toolchain files from the staged tars onto WSL's ext4 (+ case aliases):
+          # the container reads them natively instead of through 9p drive mounts
           STAGE=$HOME/stage
-          rm -rf "$STAGE"
-          for t in "$(wslpath '${{ runner.temp }}')"/stage/*.tar; do
-            n=$(basename "$t" .tar)
-            mkdir -p "$STAGE/$n" && tar -xf "$t" -C "$STAGE/$n"
-          done
+          bash "$REPO/.github/scripts/windows_unstage.sh" "$(wslpath '${{ runner.temp }}')/stage" "$STAGE"
           DEPS_MOUNT=()
           [ -d "$STAGE/deps" ] && DEPS_MOUNT=(-v "$STAGE/deps:/artifacts/.deps/windows-x64")
 
@@ -538,14 +534,10 @@ jobs:
 
           # wslpath converts Windows backslash paths → Linux /mnt/... paths
           REPO=$(wslpath '${{ github.workspace }}')
-          # Toolchain files from the staged tars onto WSL's ext4: the container then
-          # reads them natively instead of through the 9p drive mounts
+          # Toolchain files from the staged tars onto WSL's ext4 (+ case aliases):
+          # the container reads them natively instead of through 9p drive mounts
           STAGE=$HOME/stage
-          rm -rf "$STAGE"
-          for t in "$(wslpath '${{ runner.temp }}')"/stage/*.tar; do
-            n=$(basename "$t" .tar)
-            mkdir -p "$STAGE/$n" && tar -xf "$t" -C "$STAGE/$n"
-          done
+          bash "$REPO/.github/scripts/windows_unstage.sh" "$(wslpath '${{ runner.temp }}')/stage" "$STAGE"
           DEPS_MOUNT=()
           [ -d "$STAGE/deps" ] && DEPS_MOUNT=(-v "$STAGE/deps:/artifacts/.deps/windows-x64")
 

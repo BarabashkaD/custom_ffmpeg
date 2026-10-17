@@ -24,8 +24,10 @@ LIBS=(
 )
 
 for name in "${LIBS[@]}"; do
-    # Find the real file (case-insensitive search)
-    real=$(find "$SRC" -maxdepth 1 -iname "${name}.lib" | head -1)
+    # Find the real file (case-insensitive search). -quit, not `| head -1`:
+    # with several matches (a staged SDK has lower-case aliases too) head
+    # closes the pipe early and find's SIGPIPE fails the script (pipefail)
+    real=$(find "$SRC" -maxdepth 1 -iname "${name}.lib" -print -quit)
     if [[ -z "$real" ]]; then
         echo "WARNING: ${name}.lib not found in $SRC — skipping"
         continue
