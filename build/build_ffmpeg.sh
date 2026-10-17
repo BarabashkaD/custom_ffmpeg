@@ -351,7 +351,7 @@ if [[ "${TARGET_OS}" == "linux" ]]; then
         echo "ERROR: outputs need glibc ${glibc_need}, the supported minimum is ${GLIBC_MAX_VERSION}" >&2
         exit 1
     fi
-    target_note="glibc >= ${glibc_need:-? (static libraries only)}; supported: ${GLIBC_MAX_VERSION} and newer"
+    target_note="glibc ${GLIBC_MAX_VERSION} or newer (symbols used up to ${glibc_need:-n/a, static libraries only})"
 elif [[ "${TARGET_OS}" == "darwin" ]]; then
     # LC_BUILD_VERSION minos of every program and dylib
     macos_need=$(for f in "${OUT}"/bin/* "${OUT}"/lib/*.dylib; do

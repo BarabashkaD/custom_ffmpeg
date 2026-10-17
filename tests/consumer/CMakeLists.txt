@@ -16,7 +16,13 @@ else()
     project(custom_ffmpeg_consumer LANGUAGES C)
 endif()
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/../../cmake")
+# FindCustomFFmpeg.cmake: the repository's, or another copy (a release
+# archive's cmake/) through the environment variable CUSTOM_FFMPEG_MODULE_DIR
+if(DEFINED ENV{CUSTOM_FFMPEG_MODULE_DIR})
+    list(APPEND CMAKE_MODULE_PATH "$ENV{CUSTOM_FFMPEG_MODULE_DIR}")
+else()
+    list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/../../cmake")
+endif()
 
 if(NOT CUSTOM_FFMPEG_ROOT)
     message(FATAL_ERROR "Pass -DCUSTOM_FFMPEG_ROOT=<prebuilt>/<platform>/<type>/<profile>")

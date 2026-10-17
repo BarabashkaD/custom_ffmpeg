@@ -166,7 +166,17 @@ add_custom_command(TARGET app POST_BUILD
 
 Variables: `CUSTOM_FFMPEG_SHARED`, `CUSTOM_FFMPEG_RUNTIME_LIBRARIES` (files to
 ship), `CUSTOM_FFMPEG_EXTRA_LIBRARIES` (static: codec + system libraries).
-Linux `.so` files carry `RUNPATH=$ORIGIN`, macOS dylibs use `@rpath`.
+Linux `.so` files carry `RUNPATH=$ORIGIN` and the programs in `bin/`
+`$ORIGIN/../lib`; macOS dylibs and programs use `@rpath`.
+
+Every variant also contains:
+
+- `share/licenses/` — the license texts of FFmpeg and of each dependency
+  linked into this variant (ship them with your application);
+- `share/custom_ffmpeg/build-info.txt` — the custom_ffmpeg commit, FFmpeg
+  version, license, compiler, what the target system needs (Windows SDK and
+  MSVC STL, glibc, macOS) and every dependency with its version and pinned
+  commit.
 
 **MSVC Debug builds:** static `full` and `lgpl` builds work in Debug (`/MDd`)
 as well as Release (`/MD`), from C and C++. Their C++ dependencies (x265, the

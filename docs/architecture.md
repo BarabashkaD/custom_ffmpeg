@@ -168,7 +168,7 @@ headers, MSVC, Windows SDK (clang's intrinsics headers must win over MSVC's).
 | Decision | Reason |
 |---|---|
 | Dependencies always static + PIC | one deps tree serves both build types; shared FFmpeg contains them |
-| Linux `RUNPATH=$ORIGIN` | each `.so` finds its sibling FFmpeg libraries |
+| Linux `RUNPATH=$ORIGIN` for the `.so`, `$ORIGIN/../lib` for the programs (`--extra-ldsoflags` / `--extra-ldexeflags`) | each `.so` finds its siblings and `bin/ffmpeg` finds `lib/` without `LD_LIBRARY_PATH`; one flag cannot serve both — make expands the library and program link lines a different number of times |
 | macOS `install_name` → `@rpath/` | relocatable dylibs without build paths |
 
 ### Consumers
@@ -184,6 +184,9 @@ headers, MSVC, Windows SDK (clang's intrinsics headers must win over MSVC's).
 |---|---|
 | `LICENSE` (MIT) covers the build system only; [LICENSES.md](../LICENSES.md) explains the result per profile | the built libraries carry their own licenses; patches are under the license of the project they patch |
 | No `--enable-version3` | no dependency needs it; `full` stays GPL-2.0+, not GPLv3 |
+| License texts installed with every dependency (`<deps>/share/licenses/<dep>`); each FFmpeg variant gets FFmpeg's and those of the deps it links (`share/licenses/`), chosen by the enabled feature in `config.h` | binary redistribution needs them; the same list says which deps a variant links (release packaging). ffnvcodec, AMF and libdrm ship no license file: the license block of their headers is used |
+| `share/custom_ffmpeg/build-info.txt` per variant | what an artifact is: commit, versions and pinned commits of every dependency, compiler, target requirements |
+| Minimum targets in `versions.cmake` (`MACOS_MIN_VERSION` 27.0, `GLIBC_MAX_VERSION` 2.39), checked after the build (`LC_BUILD_VERSION` minos; newest `GLIBC_*` symbol version of programs and `.so`) | the documented minimum systems hold for every artifact; macOS libraries were built for the runner's version before |
 
 ### CI
 | Decision | Reason |

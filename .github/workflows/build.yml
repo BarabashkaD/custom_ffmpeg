@@ -3,6 +3,8 @@ name: Build all deps + FFmpeg
 on:
   push:
     branches: [master]
+    # a version tag builds (from the caches of master) and drafts a release
+    tags: ['v*']
     paths:
       - 'build/**'
       - 'patches/**'
@@ -311,6 +313,23 @@ jobs:
           path: prebuilt/linux-x64/${{ matrix.type }}/${{ matrix.profile }}/
           key: ${{ steps.key.outputs.key }}
 
+      # Release archive of this variant, checked like a user would: unpacked
+      # into an empty directory, consumer test with the archive's own CMake module
+      - name: Release archive (+ consumer test of the unpacked archive)
+        run: |
+          ver="${GITHUB_REF_NAME#v}"; [[ "$GITHUB_REF" == refs/tags/v* ]] || ver="dev-${GITHUB_SHA::9}"
+          a=$(python3 tools/package_release.py prebuilt linux-x64 ${{ matrix.type }} ${{ matrix.profile }} "$ver" --out dist)
+          x="$RUNNER_TEMP/pkg"; mkdir -p "$x"; tar -xJf "$a" -C "$x"
+          d="$x/$(basename "$a" .tar.xz)"
+          CC=clang CXX=clang++ CUSTOM_FFMPEG_MODULE_DIR="$d/cmake" bash tests/consumer/run.sh "$d/linux-x64/${{ matrix.type }}/${{ matrix.profile }}" "$RUNNER_TEMP/pkg-consumer"
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-linux-x64-${{ matrix.type }}-${{ matrix.profile }}
+          path: dist/*
+          retention-days: 7
+          compression-level: 0
       - name: Upload FFmpeg artifacts
         uses: actions/upload-artifact@v6
         with:
@@ -597,6 +616,26 @@ jobs:
           path: prebuilt/windows-x64/${{ matrix.type }}/${{ matrix.profile }}/
           key: ${{ steps.key.outputs.key }}
 
+      # Release archive of this variant, checked like a user would: unpacked
+      # into an empty directory, consumer test with the archive's own CMake module
+      - name: Release archive (+ consumer test of the unpacked archive)
+        run: |
+          $ver = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.Substring(1) } else { "dev-$($env:GITHUB_SHA.Substring(0, 9))" }
+          $a = python tools/package_release.py prebuilt windows-x64 ${{ matrix.type }} ${{ matrix.profile }} $ver --out dist
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $x = Join-Path $env:RUNNER_TEMP pkg
+          Expand-Archive $a $x -Force
+          $d = Join-Path $x ([IO.Path]::GetFileNameWithoutExtension($a))
+          $env:CUSTOM_FFMPEG_MODULE_DIR = "$d/cmake"
+          ./tests/consumer/run.ps1 -FFmpegRoot "$d/windows-x64/${{ matrix.type }}/${{ matrix.profile }}" -BuildDir "$env:RUNNER_TEMP/pkg-consumer"
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-windows-x64-${{ matrix.type }}-${{ matrix.profile }}
+          path: dist/*
+          retention-days: 7
+          compression-level: 0
       - name: Upload FFmpeg artifacts
         uses: actions/upload-artifact@v6
         with:
@@ -756,9 +795,73 @@ jobs:
           path: prebuilt/macos-arm64/${{ matrix.type }}/${{ matrix.profile }}/
           key: ${{ steps.key.outputs.key }}
 
+      # Release archive of this variant, checked like a user would: unpacked
+      # into an empty directory, consumer test with the archive's own CMake module
+      - name: Release archive (+ consumer test of the unpacked archive)
+        run: |
+          ver="${GITHUB_REF_NAME#v}"; [[ "$GITHUB_REF" == refs/tags/v* ]] || ver="dev-${GITHUB_SHA::9}"
+          a=$(python3 tools/package_release.py prebuilt macos-arm64 ${{ matrix.type }} ${{ matrix.profile }} "$ver" --out dist)
+          x="$RUNNER_TEMP/pkg"; mkdir -p "$x"; tar -xJf "$a" -C "$x"
+          d="$x/$(basename "$a" .tar.xz)"
+          CUSTOM_FFMPEG_MODULE_DIR="$d/cmake" bash tests/consumer/run.sh "$d/macos-arm64/${{ matrix.type }}/${{ matrix.profile }}" "$RUNNER_TEMP/pkg-consumer"
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-macos-arm64-${{ matrix.type }}-${{ matrix.profile }}
+          path: dist/*
+          retention-days: 7
+          compression-level: 0
       - name: Upload FFmpeg artifacts
         uses: actions/upload-artifact@v6
         with:
           name: ffmpeg-macos-arm64-${{ matrix.type }}-${{ matrix.profile }}
           path: prebuilt/macos-arm64/${{ matrix.type }}/${{ matrix.profile }}/
           retention-days: 7
+
+  # ── Release (version tags only) ──────────────────────────────────────────────
+  # The archives of all FFmpeg jobs, their SHA-256 list and build provenance
+  # attestations, as a DRAFT release: published by hand after a look at it.
+  release:
+    name: Release (draft)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download release archives
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: |
+          ls -l
+          sha256sum custom_ffmpeg-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Build provenance attestation
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: 'dist/custom_ffmpeg-*'
+
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          python3 tools/release_notes.py "$ver" dist > notes.md
+          ffmpeg=$(sed -n 's/^FFmpeg \*\*\(.*\)\*\* .*/\1/p' notes.md | head -n 1)
+          pre=(); [[ "$ver" == *-* ]] && pre=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" --draft "${pre[@]}" --verify-tag \
+            --title "custom_ffmpeg $ver (FFmpeg $ffmpeg)" --notes-file notes.md \
+            dist/custom_ffmpeg-* dist/SHA256SUMS

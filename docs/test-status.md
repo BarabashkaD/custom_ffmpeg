@@ -3,15 +3,15 @@
 Supported platforms and build configurations, and how far each compiled
 repository has been tested on each of them.
 
-Revision: `v1-prep` @ `b4405cf` (2026-10-17), full test level: test data from
+Revisions: windows-x64 and linux-x64 at `v1-prep` @ `b4405cf` (2026-10-17), full test level: test data from
 `tools/fetch_test_data.sh` (fate-suite, libvpx test vectors, Opus RFC 8251
-vectors, dav1d-test-data, SVT-AV1 E2E clips).
+vectors, dav1d-test-data, SVT-AV1 E2E clips); macos-arm64 in CI at `master` @ `7f1fedc` (2026-10-17).
 
 | Platform | Test host |
 |---|---|
 | windows-x64 | Windows 11 x64; built in Docker, tests run natively (FATE: make in WSL, `.exe` on Windows) |
 | linux-x64 | Ubuntu 24.04 (WSL2) |
-| macos-arm64 | not tested at this revision |
+| macos-arm64 | GitHub Actions `xcode-27` runner (macOS 27, Apple silicon), CI only: no test data (no fate-suite, test vectors or clips) |
 
 **Legend**
 
@@ -43,12 +43,12 @@ lgpl/full; Linux: C/C++).
 
 | Configuration | windows-x64 | linux-x64 | macos-arm64 | Not run |
 |---|---|---|---|---|
-| static full | ![all passed][pass]<br>FATE 5398/5398, consumer 6/6 | ![all passed][pass]<br>FATE 5402/5402, consumer 2/2 | ![not tested][untested] | |
-| static lgpl | ![all passed][pass]<br>FATE 5345/5345, consumer 6/6 | ![all passed][pass]<br>FATE 5349/5349, consumer 2/2 | ![not tested][untested] | |
-| static minimal | ![partial][partial]<br>consumer 4/4 | ![partial][partial]<br>consumer 2/2 | ![not tested][untested] | FATE |
-| shared full | ![partial][partial]<br>consumer 4/4 | ![partial][partial]<br>consumer 2/2 | ![not tested][untested] | FATE |
-| shared lgpl | ![partial][partial]<br>consumer 4/4 | ![partial][partial]<br>consumer 2/2 | ![not tested][untested] | FATE |
-| shared minimal | ![partial][partial]<br>consumer 4/4 | ![partial][partial]<br>consumer 2/2 | ![not tested][untested] | FATE |
+| static full | ![all passed][pass]<br>FATE 5398/5398, consumer 6/6 | ![all passed][pass]<br>FATE 5402/5402, consumer 2/2 | ![partial][partial]<br>FATE 2812/2812 (no samples), consumer 2/2 | macos: FATE tests that need fate-suite samples |
+| static lgpl | ![all passed][pass]<br>FATE 5345/5345, consumer 6/6 | ![all passed][pass]<br>FATE 5349/5349, consumer 2/2 | ![partial][partial]<br>FATE 2770/2770 (no samples), consumer 2/2 | macos: FATE tests that need fate-suite samples |
+| static minimal | ![partial][partial]<br>consumer 4/4 | ![partial][partial]<br>consumer 2/2 | ![partial][partial]<br>consumer 2/2 | FATE |
+| shared full | ![partial][partial]<br>consumer 4/4 | ![partial][partial]<br>consumer 2/2 | ![partial][partial]<br>consumer 2/2 | FATE |
+| shared lgpl | ![partial][partial]<br>consumer 4/4 | ![partial][partial]<br>consumer 2/2 | ![partial][partial]<br>consumer 2/2 | FATE |
+| shared minimal | ![partial][partial]<br>consumer 4/4 | ![partial][partial]<br>consumer 2/2 | ![partial][partial]<br>consumer 2/2 | FATE |
 
 ## Hardware acceleration
 
@@ -74,17 +74,17 @@ Each library is tested with its own test programs and command line tools
 
 | Repository | Version | windows-x64 | linux-x64 | macos-arm64 | Tests run | Not run |
 |---|---|---|---|---|---|---|
-| zlib | 1.3.2 | ![partial][partial] | ![partial][partial] | ![not tested][untested] | `zlib_static_example`; minigzip round trip | CMake install / `find_package` / `add_subdirectory` tests; linux: `zlib_static_example64` |
-| libogg | 1.3.6 | ![all passed][pass] | ![all passed][pass] | ![not tested][untested] | `test_bitwise`, `test_framing` | |
-| libvorbis | 1.3.7 | ![all passed][pass] | ![all passed][pass] | ![not tested][untested] | `test` (write/read), `test_sharedbook` | |
-| opus | 1.6.1 | ![all passed][pass] | ![all passed][pass] | ![not tested][untested] | 16 unit and API tests; RFC 8251 vectors (12 × mono/stereo × 5 rates); `opus_demo` round trip | |
-| libvpx | 1.17.0 | ![partial][partial] | ![partial][partial] | ![not tested][untested] | `test_libvpx` with test vectors: 12068 passed; `vpxenc`/`vpxdec` VP8/VP9 round trip | `VP9/RealtimeTest.IntegerOverflowLarge/*`; 25 tests skipped at run time; tool and example scripts (`test/*.sh`) |
-| x264 | stable @ `b35605a` | ![all passed][pass] | ![all passed][pass] | ![not tested][untested] | `checkasm8`, `checkasm10`; `x264` encode | |
-| x265 | 4.2 | ![partial][partial] | ![partial][partial] | ![not tested][untested] | `TestBench` (windows: release and debug runtime); `x265` encode | encode lists in `source/test/` (regression, smoke, rate control, save/load) |
-| libwebp | 1.6.0 | ![partial][partial] | ![partial][partial] | ![not tested][untested] | `cwebp`/`dwebp` lossy and lossless round trip | fuzz targets (`tests/fuzzer`) |
-| mp3lame | 3.100 | ![partial][partial] | ![partial][partial] | ![not tested][untested] | `lame` wav → mp3 → wav round trip | `make test` (`testcase.wav` reference comparison) |
-| SVT-AV1 | 4.2.0 | ![partial][partial] | ![partial][partial] | ![not tested][untested] | `SvtAv1UnitTests` 12072; `SvtAv1ApiTests` 59; `SvtAv1E2ETests` 326 (libaom reference decoder); `SvtAv1EncApp` encode | `SvtAv1ApiTests`: `EncParamEncModeTest`, `EncParamIntraPeridLenTest`, `EncParamHierarchicalLvlTest`, `EncParamQPTest`, `EncParamRateCtrlModeTest`, `EncParamSceneChangeDectTest`, `EncParamTargetBitRateTest`, `EncParamMinQPAllowTest`, `EncParamLevelTest`, `EncParamScreenContentModeTest`, `EncParamEnableAltRefsTest` |
-| dav1d | 1.5.4 | ![all passed][pass] | ![all passed][pass] | ![not tested][untested] | checkasm; public header tests; dav1d-test-data 1705/1705 (8, 10, 12 bit, multi, seek stress, oss-fuzz); `dav1d` decode | |
+| zlib | 1.3.2 | ![partial][partial] | ![partial][partial] | ![partial][partial] | `zlib_static_example`; minigzip round trip | CMake install / `find_package` / `add_subdirectory` tests; linux: `zlib_static_example64` |
+| libogg | 1.3.6 | ![all passed][pass] | ![all passed][pass] | ![all passed][pass] | `test_bitwise`, `test_framing` | |
+| libvorbis | 1.3.7 | ![all passed][pass] | ![all passed][pass] | ![all passed][pass] | `test` (write/read), `test_sharedbook` | |
+| opus | 1.6.1 | ![all passed][pass] | ![all passed][pass] | ![partial][partial] | 16 unit and API tests; RFC 8251 vectors (12 × mono/stereo × 5 rates); `opus_demo` round trip | macos: RFC 8251 vectors |
+| libvpx | 1.17.0 | ![partial][partial] | ![partial][partial] | ![partial][partial] | `test_libvpx` with test vectors: 12068 passed; `vpxenc`/`vpxdec` VP8/VP9 round trip | `VP9/RealtimeTest.IntegerOverflowLarge/*`; 25 tests skipped at run time; tool and example scripts (`test/*.sh`); macos: tests with test vectors (9189 skipped; 1195 passed) |
+| x264 | stable @ `b35605a` | ![all passed][pass] | ![all passed][pass] | ![all passed][pass] | `checkasm8`, `checkasm10`; `x264` encode | |
+| x265 | 4.2 | ![partial][partial] | ![partial][partial] | ![partial][partial] | `TestBench` (windows: release and debug runtime); `x265` encode | encode lists in `source/test/` (regression, smoke, rate control, save/load) |
+| libwebp | 1.6.0 | ![partial][partial] | ![partial][partial] | ![partial][partial] | `cwebp`/`dwebp` lossy and lossless round trip | fuzz targets (`tests/fuzzer`) |
+| mp3lame | 3.100 | ![partial][partial] | ![partial][partial] | ![partial][partial] | `lame` wav → mp3 → wav round trip | `make test` (`testcase.wav` reference comparison) |
+| SVT-AV1 | 4.2.0 | ![partial][partial] | ![partial][partial] | ![partial][partial] | `SvtAv1UnitTests` 12072; `SvtAv1ApiTests` 59; `SvtAv1E2ETests` 326 (libaom reference decoder); `SvtAv1EncApp` encode | `SvtAv1ApiTests`: `EncParamEncModeTest`, `EncParamIntraPeridLenTest`, `EncParamHierarchicalLvlTest`, `EncParamQPTest`, `EncParamRateCtrlModeTest`, `EncParamSceneChangeDectTest`, `EncParamTargetBitRateTest`, `EncParamMinQPAllowTest`, `EncParamLevelTest`, `EncParamScreenContentModeTest`, `EncParamEnableAltRefsTest`; macos: unit 8054 passed (arm64 suite), E2E without clips (324 skipped) |
+| dav1d | 1.5.4 | ![all passed][pass] | ![all passed][pass] | ![partial][partial] | checkasm; public header tests; dav1d-test-data 1705/1705 (8, 10, 12 bit, multi, seek stress, oss-fuzz); `dav1d` decode | macos: dav1d-test-data, `dav1d` decode (no data) |
 | ffnvcodec | n12.1.14.0 | ![headers][headers] | ![headers][headers] | — | | |
 | AMF | 1.5.0 | ![headers][headers] | ![headers][headers] | — | header set and version check | |
 | libvpl | 2.17.0 | ![partial][partial] | ![partial][partial] | — | `vpl-tests` 708 passed (windows: release and debug runtime) | windows: 309, linux: 308 tests skipped at run time |
@@ -97,8 +97,8 @@ Not part of the build output; used to build or check the test programs above.
 
 | Repository | Version | windows-x64 | linux-x64 | macos-arm64 | Used by | Not run |
 |---|---|---|---|---|---|---|
-| checkasm | 1.2.0 | ![partial][partial] | ![partial][partial] | ![not tested][untested] | dav1d checkasm | own tests (`tests/`) |
-| libaom | av1-normative @ `3fc443c` | ![partial][partial] | ![partial][partial] | ![not tested][untested] | `SvtAv1E2ETests` reference decoder | own test suite (`test_libaom`) |
+| checkasm | 1.2.0 | ![partial][partial] | ![partial][partial] | ![partial][partial] | dav1d checkasm | own tests (`tests/`) |
+| libaom | av1-normative @ `3fc443c` | ![partial][partial] | ![partial][partial] | ![partial][partial] | `SvtAv1E2ETests` reference decoder | own test suite (`test_libaom`) |
 | libva-utils | 2.24.0 | — | ![partial][partial] | — | libva tests | `vainfo`, `test_va_api` |
 
 [pass]: https://img.shields.io/badge/tests-all_passed-brightgreen
