@@ -364,7 +364,7 @@ elif [[ "${TARGET_OS}" == "darwin" ]]; then
     fi
     target_note="macOS ${MACOS_MIN_VERSION} (Apple silicon)"
 elif [[ "${TARGET_OS}" == "win64" ]]; then
-    stl=$(sed -nE 's/^#define _MSVC_STL_(VERSION|UPDATE) ([0-9]+).*/\2/p' "${MSVC_INC}/yvals_core.h" | paste -sd. -)
+    stl=$(sed -nE 's/^#define[[:space:]]+_MSVC_STL_(VERSION|UPDATE)[[:space:]]+([0-9]+).*/\2/p' "${MSVC_INC}/yvals_core.h" | paste -sd. -)
     target_note="Windows SDK ${SDK_VER}, MSVC STL ${stl} (link with MSVC v143 or newer)"
 fi
 
