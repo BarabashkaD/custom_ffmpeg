@@ -247,7 +247,9 @@ jobs:
 
       - name: Checkout submodules
         if: steps.cache.outputs.cache-hit != 'true'
-        run: git submodule update --init --recursive --depth 1
+        run: |
+          git submodule update --init --recursive --depth 1
+          bash .github/scripts/ffmpeg_tag.sh
 
       - name: Install prerequisites
         if: steps.cache.outputs.cache-hit != 'true'
@@ -537,7 +539,10 @@ jobs:
       # SKIP_DEPS build: FFmpeg's own sources only (deps come as artifacts)
       - name: Checkout submodules
         if: steps.cache.outputs.cache-hit != 'true'
-        run: git submodule update --init --recursive --depth 1 -- sources/ffmpeg
+        shell: bash
+        run: |
+          git submodule update --init --recursive --depth 1 -- sources/ffmpeg
+          bash .github/scripts/ffmpeg_tag.sh
 
       - name: Download deps from matrix jobs
         uses: actions/download-artifact@v7
@@ -751,7 +756,9 @@ jobs:
 
       - name: Checkout submodules
         if: steps.cache.outputs.cache-hit != 'true'
-        run: git submodule update --init --recursive --depth 1
+        run: |
+          git submodule update --init --recursive --depth 1
+          bash .github/scripts/ffmpeg_tag.sh
 
       - name: Install prerequisites
         if: steps.cache.outputs.cache-hit != 'true'

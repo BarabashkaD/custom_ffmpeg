@@ -103,11 +103,18 @@ if [[ "${TARGET_OS}" == "win64" ]]; then
     FFMPEG_SRC="${BUILD_ROOT}/src/ffmpeg"
     export_src "${REPO_ROOT}/sources/ffmpeg" "${FFMPEG_SRC}"
     # The export has no .git: pin the version string version.sh derives from
-    # git (e.g. git-2026-06-11-e4c6317) instead of the RELEASE fallback
-    if [[ ! -f "${FFMPEG_SRC}/VERSION" ]]; then
-        sh "${REPO_ROOT}/sources/ffmpeg/ffbuild/version.sh" "${REPO_ROOT}/sources/ffmpeg" \
-            > "${FFMPEG_SRC}/VERSION"
-    fi
+    # git (e.g. n8.1.3) instead of the RELEASE fallback
+    sh "${REPO_ROOT}/sources/ffmpeg/ffbuild/version.sh" "${REPO_ROOT}/sources/ffmpeg" \
+        > "${FFMPEG_SRC}/VERSION"
+fi
+# On a release tag the version string (ffmpeg -version, av_version_info) must
+# be the tag: a shallow submodule clone without tags gives a commit hash
+FFMPEG_RELEASE=$(cat "${FFMPEG_SRC}/RELEASE")
+FFMPEG_VERSION_STRING=$(sh "${FFMPEG_SRC}/ffbuild/version.sh" "${FFMPEG_SRC}")
+if [[ "${FFMPEG_RELEASE}" != *git* && "${FFMPEG_VERSION_STRING}" != "n${FFMPEG_RELEASE}" ]]; then
+    echo "ERROR: FFmpeg version '${FFMPEG_VERSION_STRING}' is not the release tag n${FFMPEG_RELEASE}" >&2
+    echo "       (fetch it: git -C sources/ffmpeg fetch --depth 1 origin tag n${FFMPEG_RELEASE})" >&2
+    exit 1
 fi
 
 # Build-machine roots → fixed names in debug info / __FILE__ (same names the
