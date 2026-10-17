@@ -115,6 +115,17 @@ if [[ "$BUILD_FFMPEG" == 1 ]]; then
         "-DPROFILES_DIR=${REPO_ROOT}/profiles" \
         -P "${REPO_ROOT}/cmake/GenerateConfig.cmake"
 
+    # Metal shaders (yadif_videotoolbox) need Xcode's Metal toolchain — a
+    # separate download since Xcode 26; configure would stop with
+    # "metal requested but not found"
+    if grep -q -- '--enable-metal' "$ENV_FILE" && ! xcrun -sdk macosx metal -v &>/dev/null; then
+        echo "ERROR: the Metal toolchain of Xcode is not installed"
+        echo ""
+        echo "Install with:"
+        echo "  xcodebuild -downloadComponent MetalToolchain"
+        exit 1
+    fi
+
     echo ""
     echo "=== Building FFmpeg ==="
     # Deps were built above — skip the dep stage inside build_ffmpeg.sh.

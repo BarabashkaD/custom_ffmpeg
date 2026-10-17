@@ -674,6 +674,14 @@ jobs:
           path: prebuilt/.deps/macos-arm64/
           merge-multiple: true
 
+      # Xcode 26+ ships the Metal compiler as a separate component (lgpl/full
+      # enable Metal for the VideoToolbox filters)
+      - name: Install the Metal toolchain
+        if: steps.cache.outputs.cache-hit != 'true' && matrix.profile != 'minimal'
+        run: |
+          xcodebuild -downloadComponent MetalToolchain
+          xcrun -sdk macosx metal -v
+
       - name: Build FFmpeg (macos-arm64 ${{ matrix.type }})
         if: steps.cache.outputs.cache-hit != 'true'
         run: |

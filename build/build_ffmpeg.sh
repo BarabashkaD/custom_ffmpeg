@@ -320,7 +320,9 @@ if [[ "${TARGET_OS}" == "darwin" && "${BUILD_TYPE}" == "shared" ]]; then
     for dylib in "${OUT}"/lib/*.dylib; do
         [[ -L "$dylib" ]] && continue
         install_name_tool -id "@rpath/$(basename "$dylib")" "$dylib"
-        otool -L "$dylib" | awk 'NR > 1 {print $1}' | grep -F "${OUT}/lib/" | while read -r dep; do
+        # `|| true`: a dylib without FFmpeg dependencies (libavutil) matches
+        # nothing, and under pipefail grep's status 1 would end the build
+        { otool -L "$dylib" | awk 'NR > 1 {print $1}' | grep -F "${OUT}/lib/" || true; } | while read -r dep; do
             install_name_tool -change "$dep" "@rpath/$(basename "$dep")" "$dylib"
         done
     done
