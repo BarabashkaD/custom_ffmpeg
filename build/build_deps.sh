@@ -41,12 +41,21 @@ ALL_DEPS=(
     libvpl
 )
 
-# Build list: use arguments if provided, otherwise all deps
-if [[ $# -gt 0 ]]; then
-    BUILD_LIST=("$@")
-else
-    BUILD_LIST=("${ALL_DEPS[@]}")
-fi
+# Build list: the requested deps (all without arguments), always in ALL_DEPS
+# order — callers may list them in any order (CI groups several in one job)
+BUILD_LIST=()
+for dep in "$@"; do
+    case " ${ALL_DEPS[*]} " in
+        *" $dep "*) ;;
+        *) echo "ERROR: unknown dependency '$dep' (known: ${ALL_DEPS[*]})" >&2; exit 1 ;;
+    esac
+done
+for dep in "${ALL_DEPS[@]}"; do
+    case " $* " in
+        *" $dep "*) BUILD_LIST+=("$dep") ;;
+        *) [[ $# -eq 0 ]] && BUILD_LIST+=("$dep") ;;
+    esac
+done
 
 echo "======================================"
 echo " Building dependencies"

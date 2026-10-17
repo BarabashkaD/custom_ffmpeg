@@ -105,6 +105,7 @@ Legend: **W** windows-x64, **L** linux-x64, **M** macos-arm64, **CI** GitHub Act
 | W, L | inflated pass counts (libvpx +1037, SVT-AV1 unit +4985) | gtest lists `DISABLED_` tests in the XML as `notrun`; they were counted as passed | reported separately as "disabled upstream" |
 | W, L | SVT-AV1 E2E tests without data reported as failures | the death tests' reports do not contain the child's "file not found" message | `missing_data=` option: extra missing-data markers per manifest entry |
 | M, CI | `SvtAv1UnitTests` `NEON/SADTestSubSample16bit.SADTestSubSample16bit/1` failed on macOS arm64 (passes when run filtered) | test bug in v4.2.0 `test/SadTest.cc`: `SADTestBase16bit::prepare_data()` zeroes only `MAX_SB_SIZE` (128) of the `MAX_BLOCK_SIZE` (16384) `ref_` samples for `SRC_MAX`, so the result depends on heap contents (upstream issue #2384) | upstream fix 11032898 (MR !2762, after v4.2.0) as patch `patches/svtav1/0001-sadtest-init-ref-src-max.patch`, applied on all platforms |
+| L, CI | `SvtAv1UnitTests` `AVX512_ForwardTransformTest.av1_frwd_txfm_kernels` failed on a runner with AVX-512 (AVX-512 tests are filtered out on CPUs without it — never run before) | test bug in v4.2.0 `test/ForwardtransformTests.cc`: `memset` with an element count zeroes ¼ of the `int32_t` buffers that are then compared whole — heap-dependent | upstream fix c9c5940f (MR !2673, after v4.2.0) as `patches/svtav1/0002-forwardtransformtest-fill-n.patch`; `run_dep_tests.py` now prints the CPU's AVX-512 flags and the failure messages |
 | W | libwebp CLI round trip: "Cannot read input picture file 'in.ppm'" | `cwebp` on Windows reads its input through WIC (falling back to WebP only); WIC has no PPM codec — upstream behaviour | the test feeds a BMP on Windows, PPM elsewhere |
 | L | `vainfo` / `test_va_api` fail on machines without a GPU render node (CI, WSL) | no access to `/dev/dri` | exit code 77 means SKIP in `run_dep_tests.py` |
 | W | Windows FATE wrote nothing (`Permission denied`), 0 tests | Docker records root and mode 755 in the files' NTFS metadata; FATE in WSL runs as the user, and WSL's drive mount without `metadata` ignores `chmod` | `chmod -R a+rwX` of the exported tree inside the container |
@@ -128,6 +129,9 @@ Legend: **W** windows-x64, **L** linux-x64, **M** macos-arm64, **CI** GitHub Act
 | macOS svtav1: `CMAKE_PLATFORM[@]: unbound variable` | macOS bash 3.2 treats `"${a[@]}"` of an empty array as unset under `set -u` | `${a[@]+"${a[@]}"}` (as elsewhere in the scripts) |
 | macOS x265: `install: test/TestBench: No such file or directory` | x265 builds TestBench only with `ENABLE_ASSEMBLY`, which the script turned off on arm64 | assembly on (upstream's default on AArch64; also NEON speed) |
 | `macos-14` runner deprecated | — | `xcode-27` (macOS 27, Apple silicon) |
+| Windows deps jobs failed in setup-wsl: `wsl.exe --update` → `Forbidden (403)` | windows-2022 has only WSL1, so setup-wsl updates WSL; the update queries the GitHub API unauthenticated (rate limit per shared runner IP, likely) and retries without delay | `windows-2025` (WSL2 preinstalled, no update) |
+| ~2.5 min setup per Windows job (all 18 submodules, WSL, Docker), 14 deps jobs | every job checked out every submodule; small deps had a job each | only the needed submodules; small deps grouped (7 jobs) |
+| weekly runner image update would rebuild every Windows cache | the key held the runner image version | key from the MSVC/SDK versions, a hash of key MSVC/SDK files and the builder image package list |
 
 ## Local environment (not code issues)
 
@@ -170,9 +174,10 @@ The static CRT (`/MT`, `/MTd`) is not supported; FindCustomFFmpeg warns.
 
 | | Issue | Notes |
 |---|---|---|
-| L | NASM objects in Linux static libraries embed the absolute `TMPDIR` source path | `-ffile-prefix-map` does not apply to nasm; harmless with the default `/tmp/custom_ffmpeg` and in Docker, but not caught by `check_no_local_paths`; likely SVT-AV1, x264, libvpx, dav1d |
+| L | NASM objects in Linux static libraries embed the absolute `TMPDIR` source path | `-ffile-prefix-map` does not apply to nasm; harmless with the default `/tmp/custom_ffmpeg` and in Docker; `check_no_local_paths` fails the build when `TMPDIR` is under `$HOME` (seen with SVT-AV1); likely also x264, libvpx, dav1d |
 | all | other dependencies can keep a stale `tests.tsv` after their manifest line changes | only libvpx refreshes its manifest without a rebuild |
 | L shared | `ffmpeg`/`ffprobe` in `bin/` carry `RUNPATH=$ORIGIN`, the `.so` files are in `../lib` | the programs need `LD_LIBRARY_PATH`; `$ORIGIN/../lib` would fix it |
 | all | `VP9/RealtimeTest.IntegerOverflowLarge` never runs on the test machines | needs ~20 GB (`needs_mem_gb.24`) |
-| W, L | AVX-512 code paths not tested here | the test CPU has no AVX-512; libvpx filters those tests out itself |
+| W, L | AVX-512 code paths tested only by chance | the local test CPU has no AVX-512; CI runners have it only sometimes (the tests filter themselves out without it; `run_dep_tests.py` logs the CPU's flags) |
+| L, CI | `SvtAv1ApiTests` `OnTheFlyRejectTest.rejected_out_of_range_bitrate_does_not_deadlock` failed once on an AVX-512 runner, apparently by its 15 s watchdog (deadlock) | upstream does not run the API tests in CI; not excluded — the failure messages are now printed to find the cause if it recurs |
 | all | VAAPI, QSV and AMF not tested on hardware | no Intel/AMD GPU available; NVIDIA tested with `tests/hw/nvidia_smoke.py` |

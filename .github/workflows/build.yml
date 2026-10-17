@@ -63,6 +63,10 @@ jobs:
   # The image is layer-cached in the registry, so re-runs where the Dockerfile
   # has not changed complete in seconds (all layers restored from cache).
   # The windows job pulls this pre-built image instead of rebuilding it every run.
+  # Outputs: the pushed digest — the Windows jobs pull exactly this image, not
+  # `:latest`, which another branch's run may have replaced meanwhile — and a
+  # fingerprint of its installed packages (the Alpine packages are not pinned),
+  # part of the Windows cache keys.
   build-image:
     name: Docker builder image
     if: github.event_name != 'workflow_dispatch' || inputs.windows
@@ -70,6 +74,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      image: ${{ steps.image.outputs.name }}@${{ steps.push.outputs.digest }}
+      fingerprint: ${{ steps.fingerprint.outputs.value }}
 
     steps:
       - name: Checkout
@@ -90,6 +97,7 @@ jobs:
         run: echo "name=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/custom-ffmpeg-builder" >> $GITHUB_OUTPUT
 
       - name: Build and push builder image
+        id: push
         uses: docker/build-push-action@v7
         with:
           context: docker/
@@ -97,6 +105,13 @@ jobs:
           tags: ${{ steps.image.outputs.name }}:latest
           cache-from: type=registry,ref=${{ steps.image.outputs.name }}:buildcache
           cache-to: type=registry,ref=${{ steps.image.outputs.name }}:buildcache,mode=max
+
+      - name: Package fingerprint
+        id: fingerprint
+        run: |
+          img="${{ steps.image.outputs.name }}@${{ steps.push.outputs.digest }}"
+          docker pull -q "$img"
+          echo "value=$(docker run --rm "$img" apk info -v | sort | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
 
   # ── Linux deps matrix (native) ──────────────────────────────────────────────
   linux-deps:
@@ -199,7 +214,10 @@ jobs:
 
       - name: Cache key
         id: key
-        run: echo "key=ffmpeg-linux-x64-${{ matrix.type }}-${{ matrix.profile }}-$(bash .github/scripts/cache_key.sh linux-x64 ffmpeg ${{ matrix.type }} ${{ matrix.profile }})" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "key=ffmpeg-linux-x64-${{ matrix.type }}-${{ matrix.profile }}-$(bash .github/scripts/cache_key.sh linux-x64 ffmpeg ${{ matrix.type }} ${{ matrix.profile }})" >> "$GITHUB_OUTPUT"
+          # FATE samples follow the FFmpeg version (its commit, no checkout needed)
+          echo "ffmpeg=$(git rev-parse HEAD:sources/ffmpeg)" >> "$GITHUB_OUTPUT"
 
       - name: Restore cached build
         id: cache
@@ -239,18 +257,29 @@ jobs:
           CC=clang CXX=clang++ bash tests/consumer/run.sh prebuilt/linux-x64/${{ matrix.type }}/${{ matrix.profile }}
 
       # FATE needs the build tree, so it runs on fresh static builds with
-      # programs (not minimal). The fate-suite samples (~1.4 GB) are cached.
-      - name: Cache FATE samples
+      # programs (not minimal). The fate-suite samples (~1.4 GB) are cached per
+      # FFmpeg version; after an FFmpeg update the previous set is restored and
+      # the fetch (rsync) brings only the difference, saved under the new key —
+      # by the full job only (both FATE jobs run at the same time).
+      - name: Restore FATE samples
         id: fate-cache
         if: steps.cache.outputs.cache-hit != 'true' && matrix.type == 'static' && matrix.profile != 'minimal'
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         with:
           path: testdata/fate-suite/
-          key: fate-suite-v1
+          key: fate-suite-${{ steps.key.outputs.ffmpeg }}
+          restore-keys: fate-suite-
 
       - name: Fetch FATE samples
         if: steps.cache.outputs.cache-hit != 'true' && matrix.type == 'static' && matrix.profile != 'minimal' && steps.fate-cache.outputs.cache-hit != 'true'
         run: bash tools/fetch_test_data.sh testdata fate
+
+      - name: Save FATE samples
+        if: steps.cache.outputs.cache-hit != 'true' && matrix.type == 'static' && matrix.profile == 'full' && steps.fate-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: testdata/fate-suite/
+          key: fate-suite-${{ steps.key.outputs.ffmpeg }}
 
       - name: FATE
         if: steps.cache.outputs.cache-hit != 'true' && matrix.type == 'static' && matrix.profile != 'minimal'
@@ -273,9 +302,13 @@ jobs:
           retention-days: 7
 
   # ── Windows deps matrix (Docker in WSL2) ─────────────────────────────────────
+  # windows-2025: WSL2 is preinstalled, so setup-wsl skips `wsl --update` (on
+  # windows-2022 that call hits an unauthenticated GitHub API and fails with
+  # 403 now and then). The small deps share one job: each job pays ~2 min of
+  # WSL + Docker setup, and the run has 20 job slots.
   windows-deps:
     name: Deps — windows-x64 (${{ matrix.dep.name }})
-    runs-on: windows-2022
+    runs-on: windows-2025
     needs: build-image
     permissions:
       contents: read
@@ -284,19 +317,13 @@ jobs:
       fail-fast: false
       matrix:
         dep:
-          - { name: zlib, args: "zlib" }
-          - { name: libogg, args: "libogg" }
-          - { name: libvorbis, args: "libogg libvorbis" }
-          - { name: opus, args: "opus" }
+          # build order = argument order (libogg before libvorbis)
+          - { name: small, args: "zlib libogg libvorbis opus mp3lame libwebp ffnvcodec amf" }
           - { name: libvpx, args: "libvpx" }
           - { name: x264, args: "x264" }
           - { name: x265, args: "x265" }
-          - { name: libwebp, args: "libwebp" }
-          - { name: mp3lame, args: "mp3lame" }
           - { name: svtav1, args: "svtav1" }
           - { name: dav1d, args: "dav1d" }
-          - { name: ffnvcodec, args: "ffnvcodec" }
-          - { name: amf, args: "amf" }
           - { name: libvpl, args: "libvpl" }
 
     steps:
@@ -306,9 +333,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      # Before the cache key: the key holds the MSVC / Windows SDK versions
+      - name: Generate config (Windows host)
+        run: ./.github/scripts/windows_config.ps1 -Type static -Profile full
+
       - name: Cache key
         id: key
         shell: bash
+        env:
+          BUILDER_FINGERPRINT: ${{ needs.build-image.outputs.fingerprint }}
         run: echo "key=deps-windows-x64-${{ matrix.dep.name }}-$(bash .github/scripts/cache_key.sh windows-x64 deps ${{ matrix.dep.args }})" >> "$GITHUB_OUTPUT"
 
       - name: Restore cached build
@@ -318,40 +351,22 @@ jobs:
           path: prebuilt/.deps/windows-x64/
           key: ${{ steps.key.outputs.key }}
 
+      # Only the submodules these deps build from (an empty list would mean all)
       - name: Checkout submodules
         if: steps.cache.outputs.cache-hit != 'true'
-        run: git submodule update --init --recursive --depth 1
-
-      - name: Generate config (Windows host)
-        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
         run: |
-          cmake `
-            -DTARGET_PLATFORM=windows-x64 `
-            -DBUILD_TYPE=static `
-            -DPROFILE=full `
-            -DOUTPUT_DIR=generated `
-            -DPROFILES_DIR=profiles `
-            -P cmake/GenerateConfig.cmake
-
-          # SDK + MSVC host paths: detected once by cmake/FindWindowsSDK.cmake
-          # (registry / vswhere) and written to the generated .json
-          $sdk = Get-ChildItem generated/windows-x64-static-*.json | Select-Object -First 1 |
-                 Get-Content -Raw | ConvertFrom-Json
-          if (-not $sdk.WINSDK_HOST_KITS_ROOT -or -not $sdk.MSVC_HOST_DIR) {
-            Write-Error "Windows SDK / MSVC not detected"; exit 1
-          }
-          "KITS_ROOT=$($sdk.WINSDK_HOST_KITS_ROOT)" >> $env:GITHUB_ENV
-          "MSVC_ROOT=$($sdk.MSVC_HOST_DIR)" >> $env:GITHUB_ENV
-          Write-Host "KITS_ROOT : $($sdk.WINSDK_HOST_KITS_ROOT)"
-          Write-Host "MSVC_ROOT : $($sdk.MSVC_HOST_DIR)"
+          paths=$(bash .github/scripts/dep_submodules.sh ${{ matrix.dep.args }})
+          if [ -n "$paths" ]; then
+            git submodule update --init --recursive --depth 1 -- $paths
+          fi
 
       - name: Set up WSL2 Ubuntu with Docker
         if: steps.cache.outputs.cache-hit != 'true'
         uses: Vampire/setup-wsl@v7
         with:
           distribution: Ubuntu-24.04
-          additional-packages: >-
-            docker.io ca-certificates
+          additional-packages: docker.io
 
       - name: Build dependency (Docker inside WSL2)
         if: steps.cache.outputs.cache-hit != 'true'
@@ -359,7 +374,7 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_ACTOR: ${{ github.actor }}
-          GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/custom-ffmpeg-builder:latest
+          GHCR_IMAGE: ${{ needs.build-image.outputs.image }}
           WSLENV: GHCR_TOKEN/u:GHCR_ACTOR/u:GHCR_IMAGE/u
         run: |
           set -euo pipefail
@@ -409,11 +424,16 @@ jobs:
           path: prebuilt\.deps\windows-x64\
           retention-days: 7
 
+      - name: Disk space
+        if: always()
+        continue-on-error: true
+        run: ./.github/scripts/disk_space.ps1
+
   # ── Windows — FFmpeg (Docker in WSL2, after deps matrix) ────────────────────
   windows:
     name: FFmpeg — windows-x64 (${{ matrix.type }}, ${{ matrix.profile }})
-    runs-on: windows-2022
-    needs: windows-deps
+    runs-on: windows-2025
+    needs: [build-image, windows-deps]
     permissions:
       contents: read
       packages: read
@@ -430,9 +450,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      # Before the cache key: the key holds the MSVC / Windows SDK versions
+      - name: Generate config (Windows host)
+        run: ./.github/scripts/windows_config.ps1 -Type ${{ matrix.type }} -Profile ${{ matrix.profile }}
+
       - name: Cache key
         id: key
         shell: bash
+        env:
+          BUILDER_FINGERPRINT: ${{ needs.build-image.outputs.fingerprint }}
         run: echo "key=ffmpeg-windows-x64-${{ matrix.type }}-${{ matrix.profile }}-$(bash .github/scripts/cache_key.sh windows-x64 ffmpeg ${{ matrix.type }} ${{ matrix.profile }})" >> "$GITHUB_OUTPUT"
 
       - name: Restore cached build
@@ -442,9 +468,10 @@ jobs:
           path: prebuilt/windows-x64/${{ matrix.type }}/${{ matrix.profile }}/
           key: ${{ steps.key.outputs.key }}
 
+      # SKIP_DEPS build: FFmpeg's own sources only (deps come as artifacts)
       - name: Checkout submodules
         if: steps.cache.outputs.cache-hit != 'true'
-        run: git submodule update --init --recursive --depth 1
+        run: git submodule update --init --recursive --depth 1 -- sources/ffmpeg
 
       - name: Download deps from matrix jobs
         uses: actions/download-artifact@v7
@@ -453,39 +480,12 @@ jobs:
           path: prebuilt\.deps\windows-x64\
           merge-multiple: true
 
-      - name: Generate config (Windows host)
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          foreach ($p in @('${{ matrix.profile }}')) {
-            cmake `
-              -DTARGET_PLATFORM=windows-x64 `
-              "-DBUILD_TYPE=${{ matrix.type }}" `
-              "-DPROFILE=$p" `
-              -DOUTPUT_DIR=generated `
-              -DPROFILES_DIR=profiles `
-              -P cmake/GenerateConfig.cmake
-            if ($LASTEXITCODE -ne 0) { exit 1 }
-          }
-
-          # SDK + MSVC host paths: detected once by cmake/FindWindowsSDK.cmake
-          # (registry / vswhere) and written to the generated .json
-          $sdk = Get-ChildItem generated/windows-x64-*.json | Select-Object -First 1 |
-                 Get-Content -Raw | ConvertFrom-Json
-          if (-not $sdk.WINSDK_HOST_KITS_ROOT -or -not $sdk.MSVC_HOST_DIR) {
-            Write-Error "Windows SDK / MSVC not detected"; exit 1
-          }
-          "KITS_ROOT=$($sdk.WINSDK_HOST_KITS_ROOT)" >> $env:GITHUB_ENV
-          "MSVC_ROOT=$($sdk.MSVC_HOST_DIR)" >> $env:GITHUB_ENV
-          Write-Host "KITS_ROOT : $($sdk.WINSDK_HOST_KITS_ROOT)"
-          Write-Host "MSVC_ROOT : $($sdk.MSVC_HOST_DIR)"
-
       - name: Set up WSL2 Ubuntu with Docker
         if: steps.cache.outputs.cache-hit != 'true'
         uses: Vampire/setup-wsl@v7
         with:
           distribution: Ubuntu-24.04
-          additional-packages: >-
-            docker.io ca-certificates
+          additional-packages: docker.io
 
       - name: Build FFmpeg ${{ matrix.type }} (Docker inside WSL2)
         if: steps.cache.outputs.cache-hit != 'true'
@@ -493,7 +493,7 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_ACTOR: ${{ github.actor }}
-          GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/custom-ffmpeg-builder:latest
+          GHCR_IMAGE: ${{ needs.build-image.outputs.image }}
           WSLENV: GHCR_TOKEN/u:GHCR_ACTOR/u:GHCR_IMAGE/u
         run: |
           set -euo pipefail
@@ -539,6 +539,11 @@ jobs:
           name: ffmpeg-windows-x64-${{ matrix.type }}-${{ matrix.profile }}
           path: prebuilt/windows-x64/${{ matrix.type }}/${{ matrix.profile }}/
           retention-days: 7
+
+      - name: Disk space
+        if: always()
+        continue-on-error: true
+        run: ./.github/scripts/disk_space.ps1
 
   # ── macOS ARM64 deps matrix (native) ─────────────────────────────────────────
   macos-deps:

@@ -185,7 +185,9 @@ if(TARGET_PLATFORM STREQUAL "windows-x64")
     set(_json
 "{
   \"WINSDK_HOST_KITS_ROOT\": \"${WINSDK_KITS_ROOT}\",
-  \"MSVC_HOST_DIR\": \"${MSVC_BASE_DIR}\"
+  \"MSVC_HOST_DIR\": \"${MSVC_BASE_DIR}\",
+  \"WINSDK_VERSION\": \"${WINSDK_VERSION}\",
+  \"MSVC_VERSION\": \"${MSVC_VERSION}\"
 }
 ")
     file(CONFIGURE OUTPUT "${_json_out}" CONTENT "${_json}" NEWLINE_STYLE CRLF)

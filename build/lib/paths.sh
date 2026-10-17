@@ -39,7 +39,14 @@ replace_paths() {
 # Skipped when <dest> already holds the same commit; git archive stamps every
 # file with the commit time, so make stays incremental across runs.
 export_src() {
-    local src="$1" dest="$2" sha
+    local src="$1" dest="$2" sha top
+    # A submodule that is not checked out is an empty directory: git would find
+    # the enclosing repository and export that instead
+    top=$(git -C "$src" rev-parse --show-toplevel 2>/dev/null) || top=""
+    if [[ -z "$top" || ! "$top" -ef "$src" ]]; then
+        echo "ERROR: $src is not checked out (git submodule update --init -- $src)" >&2
+        exit 1
+    fi
     sha=$(git -C "$src" rev-parse HEAD)
     if [[ "$(cat "$dest/.src-sha" 2>/dev/null)" == "$sha" ]]; then
         return 0
