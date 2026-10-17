@@ -70,7 +70,9 @@ Prebuilt archives of every variant are attached to the
 `custom_ffmpeg-<version>-<platform>-<type>-<profile>.zip` (Windows) or
 `.tar.xz` (Linux, macOS), with `SHA256SUMS` and build provenance attestations
 (`gh attestation verify <archive> -R BarabashkaD/custom_ffmpeg`). Each archive
-is self-contained — unpack it anywhere:
+is self-contained — unpack it anywhere (on Windows into a short path: MSVC
+cannot open headers whose full path exceeds 260 characters, and the AMF headers
+include each other through `../`):
 
 ```cmake
 list(APPEND CMAKE_MODULE_PATH "<archive>/cmake")
