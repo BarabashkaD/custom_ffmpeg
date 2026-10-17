@@ -231,6 +231,10 @@ if [[ "${TARGET_OS}" == "win64" && "${BUILD_TYPE}" == "shared" ]]; then
     rm -f ffbuild/config.mak.bak
 fi
 stage "make"
+# FFmpeg race (n8.1.3, still on master): the %.html.gz / %.css.min rules of
+# fftools/resources have no order-only dependency on their directory, so in
+# a parallel out-of-tree build GZIP can run before anything creates it
+mkdir -p fftools/resources
 make -j"${JOBS}"
 stage "install"
 make install
