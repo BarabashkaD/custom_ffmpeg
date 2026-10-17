@@ -80,6 +80,7 @@ headers, MSVC, Windows SDK (clang's intrinsics headers must win over MSVC's).
 | Expected license per profile | a GPL part cannot slip into an LGPL build |
 | zlib as a dependency | PNG/APNG/EXR on every platform (Windows has no system zlib) |
 | TLS from the OS only (Schannel, SecureTransport) | no extra TLS dependency; Linux builds have no https |
+| Minimum platforms: Windows 10 + VS 2022, glibc 2.39, macOS 27 (Apple silicon) | current systems only; older baselines (e.g. glibc of RHEL 9 / Ubuntu 22.04) can be added later if needed |
 
 ### Privacy and portability
 | Decision | Reason |

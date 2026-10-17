@@ -16,11 +16,11 @@ from CMake.
 
 ## Targets and profiles
 
-| Target | ABI | Built on |
-|---|---|---|
-| `windows-x64` | MSVC (`x86_64-pc-windows-msvc`) | Windows host, Docker (WSL2 backend) |
-| `linux-x64` | glibc | Linux / WSL2, natively |
-| `macos-arm64` | Apple | macOS, natively |
+| Target | ABI | Built on | Minimum supported |
+|---|---|---|---|
+| `windows-x64` | MSVC (`x86_64-pc-windows-msvc`) | Windows host, Docker (WSL2 backend) | Windows 10; Visual Studio 2022 |
+| `linux-x64` | glibc | Linux / WSL2, natively | glibc 2.39 (e.g. Ubuntu 24.04, Debian 13, RHEL 10) |
+| `macos-arm64` | Apple | macOS, natively | macOS 27, Apple silicon only |
 
 | Profile | Contents | License |
 |---|---|---|
