@@ -36,6 +36,9 @@ Pack msvc $env:MSVC_ROOT @(
     "include", "lib/x64")
 Pack compat (Resolve-Path compat).Path @(".")
 if ($Deps) {
-    # headers, libraries and .pc files — not the deps' tools and test programs
-    Pack deps (Resolve-Path prebuilt/.deps/windows-x64).Path @("include", "lib")
+    # headers, libraries, .pc files and license texts — not the deps' tools
+    # and test programs
+    $root = (Resolve-Path prebuilt/.deps/windows-x64).Path
+    $parts = @("include", "lib") + @("share/licenses" | Where-Object { Test-Path (Join-Path $root $_) })
+    Pack deps $root $parts
 }
