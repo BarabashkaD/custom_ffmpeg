@@ -66,7 +66,8 @@ DOWNLOADS="${DOWNLOADS:-/artifacts/.downloads}"   # as in deps/common.sh
 
 dep_applies() {   # <dep> — built for TARGET_OS (the others' scripts are no-ops)
     case "$1" in
-        ffnvcodec|amf|libvpl) [[ "$TARGET_OS" != "darwin" ]] ;;
+        # macOS: "macos" from build_macos.sh, "darwin" from the generated .env
+        ffnvcodec|amf|libvpl) [[ "$TARGET_OS" != "macos" && "$TARGET_OS" != "darwin" ]] ;;
         libdrm|libva)         [[ "$TARGET_OS" == "linux" ]] ;;
         *) true ;;
     esac
