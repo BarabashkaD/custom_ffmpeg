@@ -42,7 +42,8 @@ generated/, prebuilt/, tmp/   build outputs, git-ignored
 ## Commands
 
 ```powershell
-# Windows target (Docker Desktop with the WSL2 backend, VS 2022 + Windows SDK on the host)
+# Windows target (Docker Desktop with the WSL2 backend, MSVC v143 toolset — VS 2022,
+# or VS 2026 with the v143 component — + Windows SDK on the host)
 .\scripts\build.ps1                                   # static full
 .\scripts\build.ps1 -Type shared -Profile lgpl
 .\scripts\build.ps1 -OnlyDeps x264                    # one dependency

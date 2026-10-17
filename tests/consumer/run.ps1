@@ -10,12 +10,39 @@
 # choice must follow the runtime, not the configuration name. A link that
 # reports LNK2038 (runtime mismatch) or LNK4098 (conflicting default C
 # runtime libraries) fails the test.
+#
+# The test builds with the toolset the libraries were built with (-Toolset,
+# default v143): the newest Visual Studio that has it — VS 2022, or VS 2026
+# with its v143 component (needs CMake >= 4.2 for that generator) — unless
+# -Generator names one.
 param(
     [Parameter(Mandatory)][string]$FFmpegRoot,
     [string]$BuildDir = "tmp/consumer",
-    [string]$Generator = "Visual Studio 17 2022"
+    [string]$Generator = "",
+    [string]$Toolset = "v143"
 )
 $ErrorActionPreference = 'Stop'
+
+$genArgs = @('-T', $Toolset)
+if (-not $Generator) {
+    $generators = @{ 17 = 'Visual Studio 17 2022'; 18 = 'Visual Studio 18 2026' }
+    $known = (cmake --help) -join "`n"
+    # v143 = MSVC 14.30-14.4x (v142 = 14.2x, v145 = 14.5x)
+    $prefix = @{ v142 = '14.2'; v143 = '14.[34]'; v145 = '14.5' }[$Toolset]
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    $vs = & $vswhere -all -products * -format json | ConvertFrom-Json |
+        Sort-Object { [version]$_.installationVersion } -Descending |
+        Where-Object {
+            $major = ([version]$_.installationVersion).Major
+            $generators[$major] -and $known.Contains($generators[$major]) -and
+            (Get-ChildItem "$($_.installationPath)\VC\Tools\MSVC" -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match "^$prefix" -and (Test-Path "$($_.FullName)\bin\Hostx64\x64\cl.exe") })
+        } | Select-Object -First 1
+    if (-not $vs) { throw "no Visual Studio with the $Toolset toolset and a generator this CMake knows" }
+    $Generator = $generators[([version]$vs.installationVersion).Major]
+    $genArgs += "-DCMAKE_GENERATOR_INSTANCE=$($vs.installationPath)"
+    Write-Host "Generator: $Generator, toolset $Toolset ($($vs.installationPath))"
+}
 $src = $PSScriptRoot
 $root = (Resolve-Path $FFmpegRoot).Path
 $name = (Split-Path (Split-Path $root -Parent) -Leaf) + '-' + (Split-Path $root -Leaf)   # e.g. static-full
@@ -30,7 +57,7 @@ $trees = @(
 for ($t = 0; $t -lt $trees.Count; $t++) {
     $tree = $trees[$t]
     $b = Join-Path $BuildDir $tree.Dir
-    cmake -S $src -B $b -G $Generator -A x64 "-DCUSTOM_FFMPEG_ROOT=$root" @($tree.Args)
+    cmake -S $src -B $b -G $Generator -A x64 @genArgs "-DCUSTOM_FFMPEG_ROOT=$root" @($tree.Args)
     if ($LASTEXITCODE -ne 0) { throw "configure failed: $name $($tree.Dir)" }
     $cache = Get-Content "$b/CMakeCache.txt"
     if ($tree.Lang -eq 'CXX' -and -not $tree.Swapped -and

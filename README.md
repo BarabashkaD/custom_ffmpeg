@@ -18,7 +18,7 @@ from CMake.
 
 | Target | ABI | Built on | Minimum supported |
 |---|---|---|---|
-| `windows-x64` | MSVC (`x86_64-pc-windows-msvc`) | Windows host, Docker (WSL2 backend) | Windows 10; Visual Studio 2022 |
+| `windows-x64` | MSVC (`x86_64-pc-windows-msvc`) | Windows host, Docker (WSL2 backend) | Windows 10; Visual Studio 2022 or newer |
 | `linux-x64` | glibc | Linux / WSL2, natively | glibc 2.39 (e.g. Ubuntu 24.04, Debian 13, RHEL 10) |
 | `macos-arm64` | Apple | macOS, natively | macOS 27, Apple silicon only |
 
@@ -78,10 +78,12 @@ submodule.
 
 ### Windows target (`windows-x64`)
 
-Prerequisites: Docker Desktop (WSL2 backend), CMake ≥ 3.25, Visual Studio 2022
-(any edition, with the x64 C++ tools) and a Windows 10/11 SDK. The SDK and MSVC
-are detected automatically (registry / vswhere); override with
-`WINSDK_KITS_ROOT`, `MSVC_BASE_DIR` or `VS_VERSION_RANGE` if needed.
+Prerequisites: Docker Desktop (WSL2 backend), CMake ≥ 3.25, the MSVC v143
+toolset (MSVC 14.3x–14.4x, x64): Visual Studio 2022 (any edition, with the x64
+C++ tools) or Visual Studio 2026 with its "MSVC v143 — VS 2022 C++ x64/x86
+build tools" component, and a Windows 10/11 SDK. The SDK and MSVC are detected
+automatically (registry / vswhere); override with `WINSDK_KITS_ROOT`,
+`MSVC_BASE_DIR`, `MSVC_TOOLSET_RANGE` or `VS_VERSION_RANGE` if needed.
 
 ```powershell
 .\scripts\build.ps1                                # static full

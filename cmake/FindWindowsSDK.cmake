@@ -4,6 +4,7 @@
 # Inputs (all optional — auto-detected when unset):
 #   WINSDK_KITS_ROOT      -D or env: Windows Kits root (…/Windows Kits/10)
 #   MSVC_BASE_DIR         -D or env: MSVC tools dir (…/VC/Tools/MSVC/<ver>)
+#   MSVC_TOOLSET_RANGE    -D or env: MSVC toolset versions, default "[14.30,14.50)" (v143)
 #   VS_VERSION_RANGE      -D or env: vswhere -version filter, e.g. "[17,18)"
 #
 # Output variables:
@@ -30,12 +31,16 @@ endmacro()
 _winsdk_input(WINSDK_KITS_ROOT)
 _winsdk_input(MSVC_BASE_DIR)
 _winsdk_input(VS_VERSION_RANGE)
+_winsdk_input(MSVC_TOOLSET_RANGE)
 
-# Default: VS 2022. The Docker image's clang must accept the MSVC STL headers,
-# and libraries built against a newer MSVC than the consumer's toolset may not
-# link (CRT/STL symbols). Pass "" to take the newest installed VS.
-if(NOT DEFINED VS_VERSION_RANGE)
-    set(VS_VERSION_RANGE "[17,18)")
+# Default toolset: v143 (MSVC 14.30–14.4x, the VS 2022 line) from any installed
+# Visual Studio — VS 2022, or VS 2026 with its v143 component. The Docker
+# image's clang must accept the MSVC STL headers, and libraries built against a
+# newer MSVC than the consumer's toolset may not link (CRT/STL symbols).
+# MSVC_TOOLSET_RANGE "" takes the newest toolset; VS_VERSION_RANGE (vswhere
+# -version, e.g. "[17,18)") limits the Visual Studio installs searched.
+if(NOT DEFINED MSVC_TOOLSET_RANGE)
+    set(MSVC_TOOLSET_RANGE "[14.30,14.50)")
 endif()
 
 # --- Windows Kits: input → registry (where the SDK installer records it) → %ProgramFiles(x86)% ---
@@ -81,33 +86,64 @@ if(NOT MSVC_BASE_DIR)
         return()
     endif()
 
-    set(_vs_filter -products *
-        -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64)
+    # Every install (the toolset is chosen below, not the Visual Studio version;
+    # a side-by-side toolset is a different component than the default one)
+    set(_vs_filter -all -products *)
     if(VS_VERSION_RANGE)
         list(APPEND _vs_filter -version "${VS_VERSION_RANGE}")
     endif()
     execute_process(
-        COMMAND "${_vswhere}" -latest ${_vs_filter} -property installationPath
-        OUTPUT_VARIABLE _vs_install_path
+        COMMAND "${_vswhere}" ${_vs_filter} -property installationPath
+        OUTPUT_VARIABLE _vs_install_paths
         OUTPUT_STRIP_TRAILING_WHITESPACE
         RESULT_VARIABLE _vswhere_result
     )
-    if(_vswhere_result OR NOT _vs_install_path)
-        message(WARNING "vswhere: no Visual Studio with the x64 C++ toolset found — set MSVC_BASE_DIR")
+    if(_vswhere_result OR NOT _vs_install_paths)
+        message(WARNING "vswhere: no Visual Studio found — set MSVC_BASE_DIR")
         return()
     endif()
 
-    # Normalize backslashes → forward slashes (vswhere returns Windows-style paths)
-    file(TO_CMAKE_PATH "${_vs_install_path}" _vs_install_path)
-    set(_msvc_base "${_vs_install_path}/VC/Tools/MSVC")
+    set(_tool_min "")
+    set(_tool_max "")
+    if(MSVC_TOOLSET_RANGE MATCHES "^\\[([0-9.]+),([0-9.]+)\\)$")
+        set(_tool_min "${CMAKE_MATCH_1}")
+        set(_tool_max "${CMAKE_MATCH_2}")
+    elseif(MSVC_TOOLSET_RANGE)
+        message(FATAL_ERROR "MSVC_TOOLSET_RANGE must look like [14.30,14.50): '${MSVC_TOOLSET_RANGE}'")
+    endif()
 
-    file(GLOB _msvc_versions LIST_DIRECTORIES true "${_msvc_base}/*")
+    # MSVC tool dirs of all installs within the toolset range (with the x64 compiler)
+    string(REPLACE "\n" ";" _vs_install_paths "${_vs_install_paths}")
+    set(_msvc_versions "")
+    foreach(_vs IN LISTS _vs_install_paths)
+        # Normalize backslashes → forward slashes (vswhere returns Windows-style paths)
+        file(TO_CMAKE_PATH "${_vs}" _vs)
+        file(GLOB _dirs LIST_DIRECTORIES true "${_vs}/VC/Tools/MSVC/14.*")
+        foreach(_dir IN LISTS _dirs)
+            cmake_path(GET _dir FILENAME _ver)
+            if(NOT EXISTS "${_dir}/bin/Hostx64/x64/cl.exe")
+                continue()
+            endif()
+            if(_tool_min AND (_ver VERSION_LESS _tool_min OR NOT _ver VERSION_LESS _tool_max))
+                continue()
+            endif()
+            list(APPEND _msvc_versions "${_dir}")
+        endforeach()
+    endforeach()
     if(NOT _msvc_versions)
-        message(WARNING "MSVC tools not found under ${_msvc_base}")
+        message(WARNING "no MSVC x64 toolset in ${MSVC_TOOLSET_RANGE} found in any Visual Studio — "
+                        "install it (VS 2022, or the v143 component of VS 2026) or set MSVC_BASE_DIR")
         return()
     endif()
-    list(SORT _msvc_versions COMPARE NATURAL ORDER DESCENDING)
-    list(GET _msvc_versions 0 MSVC_BASE_DIR)
+    # Newest version; NATURAL sorts whole paths, so sort the version names
+    set(_best_ver "")
+    foreach(_dir IN LISTS _msvc_versions)
+        cmake_path(GET _dir FILENAME _ver)
+        if(NOT _best_ver OR _ver VERSION_GREATER _best_ver)
+            set(_best_ver "${_ver}")
+            set(MSVC_BASE_DIR "${_dir}")
+        endif()
+    endforeach()
 endif()
 string(REGEX REPLACE "/+$" "" MSVC_BASE_DIR "${MSVC_BASE_DIR}")
 if(NOT EXISTS "${MSVC_BASE_DIR}/include")

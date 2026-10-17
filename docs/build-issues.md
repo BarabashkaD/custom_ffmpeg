@@ -15,7 +15,7 @@ Legend: **W** windows-x64, **L** linux-x64, **M** macos-arm64, **CI** GitHub Act
 | W | `_mm_*` intrinsics became undefined externals at link time | MSVC's `<emmintrin.h>` was found before clang's | clang resource include dir placed before the MSVC include dir |
 | W | `-lfoo` not found although `libfoo.a` exists | lld-link in MSVC mode resolves `-lfoo` only as `foo.lib` | libraries installed as `x264.lib`, `vpx.lib`, `z.lib`, `dav1d.lib`, ... |
 | W, CI | MSVC/SDK not found on runners and other machines | hard-coded VS paths; `windows-latest` moved to VS 2026; CMake's vswhere call failed with a version range | SDK root from the registry, MSVC via vswhere (PowerShell on CI), only `10.*` SDK dirs with natural sort (CI picked a `wdf` dir), runner pinned to windows-2022, everything overridable |
-| W | Newer MSVC STL rejected by the image's clang; libraries built against a newer MSVC not linkable by older toolsets | STL headers require a recent clang; static libs carry the STL version | default `VS_VERSION_RANGE` = VS 2022 |
+| W | Newer MSVC STL rejected by the image's clang; libraries built against a newer MSVC not linkable by older toolsets | STL headers require a recent clang; static libs carry the STL version | default toolset v143 (`MSVC_TOOLSET_RANGE` [14.30,14.50)) from any Visual Studio |
 | W, CI | autotools and shell scripts in submodules broken (`autoreconf` on libogg, x264 `configure`) | `core.autocrlf=true` checks submodules out with CRLF | `core.autocrlf false` for submodules and CI, `.gitattributes` (`*.sh`, `patches/**` → LF) |
 
 ## Dependencies
@@ -129,7 +129,8 @@ Legend: **W** windows-x64, **L** linux-x64, **M** macos-arm64, **CI** GitHub Act
 | macOS svtav1: `CMAKE_PLATFORM[@]: unbound variable` | macOS bash 3.2 treats `"${a[@]}"` of an empty array as unset under `set -u` | `${a[@]+"${a[@]}"}` (as elsewhere in the scripts) |
 | macOS x265: `install: test/TestBench: No such file or directory` | x265 builds TestBench only with `ENABLE_ASSEMBLY`, which the script turned off on arm64 | assembly on (upstream's default on AArch64; also NEON speed) |
 | `macos-14` runner deprecated | — | `xcode-27` (macOS 27, Apple silicon) |
-| Windows jobs on `windows-2025` failed at once: "vswhere: no Visual Studio with the x64 C++ toolset found" | the `windows-2025` label moved to the image with Visual Studio 2026 (only its MSVC 14.44 component, no VS 2022) | back to `windows-2022`; the `wsl --update` 403 stays open (below) |
+| Windows deps jobs failed in setup-wsl: `wsl.exe --update` → `Forbidden (403)` | windows-2022 has only WSL1, so setup-wsl updates WSL; the update queries the GitHub API unauthenticated (rate limit per shared runner IP, likely) and retries without delay | `windows-2025` (WSL2 preinstalled, no update) |
+| Windows jobs on `windows-2025` failed at once: "vswhere: no Visual Studio with the x64 C++ toolset found" | the `windows-2025` label moved to the image with Visual Studio 2026 (only its MSVC 14.44 component, no VS 2022) | MSVC found by toolset version in every Visual Studio install (VS 2026's v143 component); consumer test picks the Visual Studio that has v143 (`-T v143`), CMake 4.2 installed on the runner for the VS 2026 generator |
 | ~2.5 min setup per Windows job (all 18 submodules, WSL, Docker), 14 deps jobs | every job checked out every submodule; small deps had a job each | only the needed submodules; small deps grouped (7 jobs) |
 | weekly runner image update would rebuild every Windows cache | the key held the runner image version | key from the MSVC/SDK versions, a hash of key MSVC/SDK files and the builder image package list |
 
@@ -179,6 +180,5 @@ The static CRT (`/MT`, `/MTd`) is not supported; FindCustomFFmpeg warns.
 | L shared | `ffmpeg`/`ffprobe` in `bin/` carry `RUNPATH=$ORIGIN`, the `.so` files are in `../lib` | the programs need `LD_LIBRARY_PATH`; `$ORIGIN/../lib` would fix it |
 | all | `VP9/RealtimeTest.IntegerOverflowLarge` never runs on the test machines | needs ~20 GB (`needs_mem_gb.24`) |
 | W, L | AVX-512 code paths tested only by chance | the local test CPU has no AVX-512; CI runners have it only sometimes (the tests filter themselves out without it; `run_dep_tests.py` logs the CPU's flags) |
-| CI | Windows jobs fail now and then in setup-wsl: `wsl.exe --update` → `Forbidden (403)` | windows-2022 has only WSL1, so setup-wsl updates WSL; the update queries the GitHub API unauthenticated (rate limit per shared runner IP, likely) and retries without delay. Options: install the WSL MSI ourselves with an authenticated download, or move to the VS 2026 image (`windows-2025`, WSL2 preinstalled) with its MSVC 14.44 component |
 | L, CI | `SvtAv1ApiTests` `OnTheFlyRejectTest.rejected_out_of_range_bitrate_does_not_deadlock` failed once on an AVX-512 runner, apparently by its 15 s watchdog (deadlock) | upstream does not run the API tests in CI; not excluded — the failure messages are now printed to find the cause if it recurs |
 | all | VAAPI, QSV and AMF not tested on hardware | no Intel/AMD GPU available; NVIDIA tested with `tests/hw/nvidia_smoke.py` |

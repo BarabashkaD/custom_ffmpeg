@@ -58,6 +58,10 @@ concurrency:
 # scripts, patches, profiles, runner image). On a hit the job skips submodule
 # checkout, toolchain setup and the build, and only restores + uploads/tests.
 
+# CMake for the Windows host steps (official release, see .github/scripts/install_cmake.ps1)
+env:
+  CMAKE_VERSION: 4.2.8
+
 jobs:
   # ── Build & push Docker builder image to ghcr.io ────────────────────────────
   # The image is layer-cached in the registry, so re-runs where the Dockerfile
@@ -302,13 +306,14 @@ jobs:
           retention-days: 7
 
   # ── Windows deps matrix (Docker in WSL2) ─────────────────────────────────────
-  # windows-2022: the VS 2022 toolset (windows-2025 now carries VS 2026 only).
-  # Its WSL1 makes setup-wsl run `wsl --update`, which fails with 403 now and
-  # then (docs/build-issues.md, open issues). The small deps share one job: each
-  # job pays ~2 min of WSL + Docker setup, and the run has 20 job slots.
+  # windows-2025: Visual Studio 2026 with the v143 toolset component (MSVC 14.44,
+  # the VS 2022 line the libraries are built with) and WSL2 preinstalled, so
+  # setup-wsl skips `wsl --update` (403 now and then on windows-2022). CMake
+  # >= 4.2 for the VS 2026 generator of the consumer test. The small deps share
+  # one job: each job pays ~2 min of WSL + Docker setup, the run has 20 slots.
   windows-deps:
     name: Deps — windows-x64 (${{ matrix.dep.name }})
-    runs-on: windows-2022
+    runs-on: windows-2025
     needs: build-image
     permissions:
       contents: read
@@ -332,6 +337,11 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Install CMake
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./.github/scripts/install_cmake.ps1 -Version ${{ env.CMAKE_VERSION }}
 
       # Before the cache key: the key holds the MSVC / Windows SDK versions
       - name: Generate config (Windows host)
@@ -432,7 +442,7 @@ jobs:
   # ── Windows — FFmpeg (Docker in WSL2, after deps matrix) ────────────────────
   windows:
     name: FFmpeg — windows-x64 (${{ matrix.type }}, ${{ matrix.profile }})
-    runs-on: windows-2022
+    runs-on: windows-2025
     needs: [build-image, windows-deps]
     permissions:
       contents: read
@@ -449,6 +459,11 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Install CMake
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./.github/scripts/install_cmake.ps1 -Version ${{ env.CMAKE_VERSION }}
 
       # Before the cache key: the key holds the MSVC / Windows SDK versions
       - name: Generate config (Windows host)

@@ -80,7 +80,7 @@ headers, MSVC, Windows SDK (clang's intrinsics headers must win over MSVC's).
 | Expected license per profile | a GPL part cannot slip into an LGPL build |
 | zlib as a dependency | PNG/APNG/EXR on every platform (Windows has no system zlib) |
 | TLS from the OS only (Schannel, SecureTransport) | no extra TLS dependency; Linux builds have no https |
-| Minimum platforms: Windows 10 + VS 2022, glibc 2.39, macOS 27 (Apple silicon) | current systems only; older baselines (e.g. glibc of RHEL 9 / Ubuntu 22.04) can be added later if needed |
+| Minimum platforms: Windows 10 + VS 2022 or newer, glibc 2.39, macOS 27 (Apple silicon) | current systems only; older baselines (e.g. glibc of RHEL 9 / Ubuntu 22.04) can be added later if needed |
 
 ### Privacy and portability
 | Decision | Reason |
@@ -89,7 +89,7 @@ headers, MSVC, Windows SDK (clang's intrinsics headers must win over MSVC's).
 | Scrub paths in FFmpeg's `config.h` and libvpx's `vpx_config.c` | both embed the configure command line (`avutil_configuration()`, `vpx_codec_build_config()`); `config.h` keeps its mtime when unchanged |
 | Relocatable `.pc` files (`${pcfiledir}`), no libtool `.la` files | outputs can be moved and contain no absolute paths |
 | `check_no_local_paths` after every build | fails on the checkout root, `$HOME` or the host name in libraries, headers, `.pc` files, binaries |
-| SDK/MSVC from registry/vswhere, overridable (`WINSDK_KITS_ROOT`, `MSVC_BASE_DIR`, `VS_VERSION_RANGE`) | no hard-coded install paths; default VS 2022 because the image's clang must accept the MSVC STL headers and consumers' toolsets must not be older than the headers used |
+| SDK/MSVC from registry/vswhere, overridable (`WINSDK_KITS_ROOT`, `MSVC_BASE_DIR`, `MSVC_TOOLSET_RANGE`, `VS_VERSION_RANGE`) | no hard-coded install paths; default toolset v143 (MSVC 14.3x–14.4x, the VS 2022 line) from any Visual Studio — VS 2022 or VS 2026's v143 component — because the image's clang must accept the MSVC STL headers and consumers' toolsets must not be older than the headers used |
 
 ### Sources and build trees
 | Decision | Reason |
@@ -190,7 +190,7 @@ headers, MSVC, Windows SDK (clang's intrinsics headers must win over MSVC's).
 | Deps matrix per platform, then FFmpeg per type × profile | parallel jobs instead of sequential builds |
 | Each deps job runs that dependency's tests (also on cache hits); FATE on fresh static builds | CI has no test vectors except the cached FATE samples (Linux) |
 | Cache keys from `git ls-files -s` + the toolchain (Linux/macOS: runner image; Windows: MSVC/SDK versions and a hash of key MSVC/SDK files, builder image package list) | content-based, independent of line endings, no submodule checkout needed; the weekly Windows runner image update does not invalidate the Windows caches |
-| Windows jobs on `windows-2022` | the VS 2022 toolset (MSVC 14.44) the libraries are built against; the `windows-2025` label now has VS 2026 only (its v143 component is not found by our VS 2022 lookup, and the consumer test uses the VS 2022 generator) |
+| Windows jobs on `windows-2025` (VS 2026 image) with its v143 component, CMake 4.2 from the official release | WSL2 is preinstalled, so setup-wsl skips `wsl --update` (403 now and then on windows-2022); the libraries keep MSVC 14.44, and the consumer test uses the VS 2026 generator with `-T v143` (CMake ≥ 4.2; the runner has 3.31) |
 | Windows jobs check out only the submodules they build from (`.github/scripts/dep_submodules.sh`); `export_src` fails on a missing checkout | ~40 s per job; an empty submodule directory would otherwise export the enclosing repository |
 | Small Windows deps (zlib, ogg/vorbis, opus, LAME, WebP, ffnvcodec, AMF) in one job; `build_deps.sh` builds in its own dependency order | each Windows job pays ~2 min of WSL + Docker setup; the run has 20 job slots |
 | Windows jobs pull the builder image by digest from their run's build-image job | `:latest` can be replaced by another branch's run meanwhile |
