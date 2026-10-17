@@ -302,13 +302,13 @@ jobs:
           retention-days: 7
 
   # ── Windows deps matrix (Docker in WSL2) ─────────────────────────────────────
-  # windows-2025: WSL2 is preinstalled, so setup-wsl skips `wsl --update` (on
-  # windows-2022 that call hits an unauthenticated GitHub API and fails with
-  # 403 now and then). The small deps share one job: each job pays ~2 min of
-  # WSL + Docker setup, and the run has 20 job slots.
+  # windows-2022: the VS 2022 toolset (windows-2025 now carries VS 2026 only).
+  # Its WSL1 makes setup-wsl run `wsl --update`, which fails with 403 now and
+  # then (docs/build-issues.md, open issues). The small deps share one job: each
+  # job pays ~2 min of WSL + Docker setup, and the run has 20 job slots.
   windows-deps:
     name: Deps — windows-x64 (${{ matrix.dep.name }})
-    runs-on: windows-2025
+    runs-on: windows-2022
     needs: build-image
     permissions:
       contents: read
@@ -432,7 +432,7 @@ jobs:
   # ── Windows — FFmpeg (Docker in WSL2, after deps matrix) ────────────────────
   windows:
     name: FFmpeg — windows-x64 (${{ matrix.type }}, ${{ matrix.profile }})
-    runs-on: windows-2025
+    runs-on: windows-2022
     needs: [build-image, windows-deps]
     permissions:
       contents: read

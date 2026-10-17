@@ -190,7 +190,7 @@ headers, MSVC, Windows SDK (clang's intrinsics headers must win over MSVC's).
 | Deps matrix per platform, then FFmpeg per type × profile | parallel jobs instead of sequential builds |
 | Each deps job runs that dependency's tests (also on cache hits); FATE on fresh static builds | CI has no test vectors except the cached FATE samples (Linux) |
 | Cache keys from `git ls-files -s` + the toolchain (Linux/macOS: runner image; Windows: MSVC/SDK versions and a hash of key MSVC/SDK files, builder image package list) | content-based, independent of line endings, no submodule checkout needed; the weekly Windows runner image update does not invalidate the Windows caches |
-| Windows jobs on `windows-2025` | WSL2 is preinstalled, so setup-wsl skips `wsl --update`, which fails with 403 now and then on windows-2022 (unauthenticated GitHub API) and costs ~40 s |
+| Windows jobs on `windows-2022` | the VS 2022 toolset (MSVC 14.44) the libraries are built against; the `windows-2025` label now has VS 2026 only (its v143 component is not found by our VS 2022 lookup, and the consumer test uses the VS 2022 generator) |
 | Windows jobs check out only the submodules they build from (`.github/scripts/dep_submodules.sh`); `export_src` fails on a missing checkout | ~40 s per job; an empty submodule directory would otherwise export the enclosing repository |
 | Small Windows deps (zlib, ogg/vorbis, opus, LAME, WebP, ffnvcodec, AMF) in one job; `build_deps.sh` builds in its own dependency order | each Windows job pays ~2 min of WSL + Docker setup; the run has 20 job slots |
 | Windows jobs pull the builder image by digest from their run's build-image job | `:latest` can be replaced by another branch's run meanwhile |
