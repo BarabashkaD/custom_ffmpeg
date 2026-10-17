@@ -1,0 +1,53 @@
+From c9c5940f1f0c80c4ed50873e909502a5dc96425f Mon Sep 17 00:00:00 2001
+From: Christopher Degawa <1480c1@videolan.org>
+Date: Sun, 31 May 2026 09:29:56 +0000
+Subject: [PATCH] ForwardtransformTest: fix memset, convert to std::fill_n
+
+memset() was given an element count instead of a byte count, so only a
+quarter of the int32_t coefficient buffers (half of the int16_t input
+buffers) was zeroed, while the test compares the whole buffers; the result
+depended on what the heap held (seen on AVX-512 machines).
+
+Upstream commit c9c5940f (MR !2673), not in v4.2.0:
+https://gitlab.com/AOMediaCodec/SVT-AV1/-/commit/c9c5940f1f0c80c4ed50873e909502a5dc96425f
+
+Signed-off-by: Christopher Degawa <1480c1@videolan.org>
+---
+ test/ForwardtransformTests.cc | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/test/ForwardtransformTests.cc b/test/ForwardtransformTests.cc
+--- a/test/ForwardtransformTests.cc
++++ b/test/ForwardtransformTests.cc
+@@ -11,6 +11,7 @@
+  */
+ 
+ #include "gtest/gtest.h"
++#include <algorithm>
+ #include "definitions.h"
+ #include "aom_dsp_rtcd.h"
+ #include "unit_test_utility.h"
+@@ -52,8 +53,8 @@ static void init_data(int16_t **input, int16_t **input_opt,
+         int16_t *, *input, sizeof(int16_t) * MAX_SB_SIZE * input_stride);
+     TEST_ALLIGN_MALLOC(
+         int16_t *, *input_opt, sizeof(int16_t) * MAX_SB_SIZE * input_stride);
+-    memset(*input, 0, MAX_SB_SIZE * input_stride);
+-    memset(*input_opt, 0, MAX_SB_SIZE * input_stride);
++    std::fill_n(*input, MAX_SB_SIZE * input_stride, 0);
++    std::fill_n(*input_opt, MAX_SB_SIZE * input_stride, 0);
+     svt_buf_random_s16(*input, MAX_SB_SIZE * input_stride);
+     memcpy(*input_opt, *input, sizeof(**input) * MAX_SB_SIZE * input_stride);
+ }
+@@ -74,8 +75,8 @@ static void init_coeff(int32_t **coeff, int32_t **coeff_opt, uint32_t *stride) {
+         int32_t *, *coeff, sizeof(int32_t) * MAX_SB_SIZE * *stride);
+     TEST_ALLIGN_MALLOC(
+         int32_t *, *coeff_opt, sizeof(int32_t) * MAX_SB_SIZE * *stride);
+-    memset(*coeff, 0, MAX_SB_SIZE * *stride);
+-    memset(*coeff_opt, 0, MAX_SB_SIZE * *stride);
++    std::fill_n(*coeff, MAX_SB_SIZE * *stride, 0);
++    std::fill_n(*coeff_opt, MAX_SB_SIZE * *stride, 0);
+ }
+ 
+ void compare_s32(int32_t *output_base, int32_t *output_opt, uint32_t stride,
+-- 
+2.47.0

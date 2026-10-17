@@ -27,6 +27,7 @@ Exit status: 0 when nothing failed.
 import argparse
 import os
 import platform
+import re
 import shutil
 import struct
 import subprocess
@@ -224,7 +225,7 @@ class Runner:
             runs.append((p, xml, None))
 
         passed = failed = skipped = disabled = 0
-        failures = []
+        failures, failure_msgs = [], []
         for p, xml, _ in runs:
             if not os.path.isfile(xml):
                 return "FAIL", f"crashed (exit {p.returncode}), see {tmp}"
@@ -248,6 +249,12 @@ class Runner:
                 else:
                     failed += 1
                     failures.append(f"{case.get('classname')}.{case.get('name')}")
+                    failure_msgs.append((failures[-1], "\n".join(msgs)))
+        # the assertion text of the first failures (the shard logs stay in tmp)
+        for name, msg in failure_msgs[:3]:
+            self.say(f"      {name}:")
+            for line in msg.strip().splitlines()[:8]:
+                self.say(f"        {line}")
         detail = f"{passed} passed, {skipped} skipped, {failed} failed"
         if disabled:
             detail += f", {disabled} disabled upstream (DISABLED_)"
@@ -704,6 +711,16 @@ def main():
     r = Runner(a.deps_dir, a.data, a.jobs, log)
     only = set(filter(None, a.only.split(",")))
     r.say(f"deps: {r.deps}  data: {r.data or '(none)'}  host: {platform.system()} {platform.machine()}")
+    # SIMD paths tested depend on the CPU (e.g. AVX-512 tests are filtered out
+    # without it): record what this machine has
+    try:
+        with open("/proc/cpuinfo", encoding="utf-8") as f:
+            info = f.read()
+        model = re.search(r"^model name\s*:\s*(.+)$", info, re.M)
+        avx512 = sorted(set(re.findall(r"\b(avx512\w*)", info)))
+        r.say(f"cpu: {model.group(1) if model else '?'}  avx512: {' '.join(avx512) or 'none'}")
+    except OSError:
+        pass                                # not Linux
     try:
         r.run_manifests(only)
         r.run_cli_tests(only)
