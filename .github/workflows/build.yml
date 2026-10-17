@@ -544,7 +544,7 @@ jobs:
   macos-deps:
     name: Deps — macos-arm64 (${{ matrix.dep.name }})
     if: github.event_name != 'workflow_dispatch' || inputs.macos
-    runs-on: macos-14
+    runs-on: xcode-27   # macOS 27 on Apple silicon (images are named by Xcode version)
     permissions:
       contents: read
     strategy:
@@ -614,7 +614,7 @@ jobs:
   # ── macOS ARM64 — FFmpeg (native, after deps matrix) ─────────────────────────
   macos:
     name: FFmpeg — macos-arm64 (${{ matrix.type }}, ${{ matrix.profile }})
-    runs-on: macos-14
+    runs-on: xcode-27   # macOS 27 on Apple silicon (images are named by Xcode version)
     needs: macos-deps
     permissions:
       contents: read

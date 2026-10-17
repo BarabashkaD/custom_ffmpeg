@@ -125,6 +125,8 @@ headers, MSVC, Windows SDK (clang's intrinsics headers must win over MSVC's).
 | Decision | Reason |
 |---|---|
 | libvorbis: `-force_cpusubtype_ALL` removed from the generated Makefiles | `configure.ac` hard-codes it for darwin; the Xcode linker rejects it |
+| x265 with its AArch64 assembly | upstream's default on arm64 (NEON, dot product, i8mm; SVE checks fail on Apple clang and are skipped); TestBench exists only with assembly |
+| CI on `xcode-27` runners | macOS 27 on Apple silicon, the minimum supported version; GitHub names macOS images by Xcode version |
 
 ### Codec dependencies
 | Decision | Reason |

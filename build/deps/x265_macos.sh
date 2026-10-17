@@ -14,7 +14,10 @@ LOCAL_SRC=$(x265_src)
 dep_build_dir x265
 BUILD_TMP="$PWD"
 
-# ARM64 macOS: no x86 NASM assembly; ARM NEON/SVE is handled by the C compiler.
+# ARM64 macOS: x265's AArch64 assembly (NEON, NEON dot product / i8mm) is
+# upstream's default; SVE/SVE2 are dropped by its own compile checks on Apple
+# clang. Assembly is also what TestBench tests — x265 builds it only with
+# ENABLE_ASSEMBLY (source/CMakeLists.txt).
 cmake "$LOCAL_SRC/source" \
     -GNinja \
     -DCMAKE_INSTALL_PREFIX="$DEPS_PREFIX" \
@@ -28,7 +31,7 @@ cmake "$LOCAL_SRC/source" \
     ${X265_SHARED} \
     -DENABLE_CLI=ON \
     -DENABLE_TESTS=ON \
-    -DENABLE_ASSEMBLY=OFF
+    -DENABLE_ASSEMBLY=ON
 
 ninja -j"$JOBS"
 ninja install

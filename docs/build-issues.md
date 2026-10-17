@@ -123,6 +123,10 @@ Legend: **W** windows-x64, **L** linux-x64, **M** macos-arm64, **CI** GitHub Act
 | `-DPROFILE=$p` passed literally | PowerShell quoting | quoted argument |
 | Node 20 deprecation | old action versions | actions on Node 24 |
 | stale steps after the test rework (`checkasm8`, `test_x264`) | replaced by `run_dep_tests.py` | removed |
+| builder image push to ghcr.io: `403 permission_denied` | the container package still belonged to the repository it was first pushed from | package deleted; the workflow recreates it for this repository |
+| macOS svtav1: `CMAKE_PLATFORM[@]: unbound variable` | macOS bash 3.2 treats `"${a[@]}"` of an empty array as unset under `set -u` | `${a[@]+"${a[@]}"}` (as elsewhere in the scripts) |
+| macOS x265: `install: test/TestBench: No such file or directory` | x265 builds TestBench only with `ENABLE_ASSEMBLY`, which the script turned off on arm64 | assembly on (upstream's default on AArch64; also NEON speed) |
+| `macos-14` runner deprecated | — | `xcode-27` (macOS 27, Apple silicon) |
 
 ## Local environment (not code issues)
 

@@ -14,6 +14,8 @@ SRC_DIR=$(dep_src svtav1)
 dep_build_dir svtav1
 BUILD_TMP="$PWD"
 
+# Empty arrays are expanded as ${a[@]+"${a[@]}"}: macOS bash 3.2 treats
+# "${a[@]}" of an empty array as unset under set -u
 CMAKE_PLATFORM=()
 CXX_EXTRA=""
 if [[ "$TARGET_OS" == "win64" ]]; then
@@ -85,7 +87,7 @@ build_libaom() {
         -DENABLE_TESTDATA=0 \
         -DENABLE_TESTS=0 \
         -DENABLE_TOOLS=0 \
-        "${CMAKE_PLATFORM[@]}"
+        "${CMAKE_PLATFORM[@]+"${CMAKE_PLATFORM[@]}"}"
     ninja -C "$AOM_BUILD" -j"$JOBS" aom
     # Imported target for SVT-AV1 (CMAKE_PROJECT_INCLUDE runs after each
     # project() call — the guard keeps the first definition)
@@ -127,8 +129,8 @@ svtav1_configure() {
         -DREPRODUCIBLE_BUILDS=ON \
         -DBUILD_APPS=ON \
         -DBUILD_TESTING="$2" \
-        "${aom[@]}" \
-        "${CMAKE_PLATFORM[@]}"
+        "${aom[@]+"${aom[@]}"}" \
+        "${CMAKE_PLATFORM[@]+"${CMAKE_PLATFORM[@]}"}"
 }
 
 # Tests: SvtAv1UnitTests (SIMD kernels against the C reference) and
