@@ -314,17 +314,35 @@ ship_dep_headers AMF AMF
 ship_dep_headers vpl LIBVPL
 ship_dep_headers va VAAPI
 
-# macOS shared: dylibs carry their install path as install_name and in every
-# dependent dylib — make them @rpath-relative (relocatable, no build paths)
+# macOS shared: dylibs carry their install path as install_name, and every
+# dependent dylib and program (ffmpeg, ffprobe) records it — make them
+# @rpath-relative (relocatable, no build paths). The programs find the dylibs
+# through an rpath to ../lib; absolute rpaths into the output are dropped.
 if [[ "${TARGET_OS}" == "darwin" && "${BUILD_TYPE}" == "shared" ]]; then
+    relink_macho() {    # <Mach-O file>
+        # `|| true`: a file without FFmpeg dependencies (libavutil) matches
+        # nothing, and under pipefail grep's status 1 would end the build
+        { otool -L "$1" | awk 'NR > 1 {print $1}' | grep -F "${OUT}/lib/" || true; } | while read -r dep; do
+            install_name_tool -change "$dep" "@rpath/$(basename "$dep")" "$1"
+        done
+        { otool -l "$1" | awk '/cmd LC_RPATH/ {getline; getline; print $2}' | grep -F "${OUT}" || true; } | while read -r rp; do
+            install_name_tool -delete_rpath "$rp" "$1"
+        done
+    }
     for dylib in "${OUT}"/lib/*.dylib; do
         [[ -L "$dylib" ]] && continue
         install_name_tool -id "@rpath/$(basename "$dylib")" "$dylib"
-        # `|| true`: a dylib without FFmpeg dependencies (libavutil) matches
-        # nothing, and under pipefail grep's status 1 would end the build
-        { otool -L "$dylib" | awk 'NR > 1 {print $1}' | grep -F "${OUT}/lib/" || true; } | while read -r dep; do
-            install_name_tool -change "$dep" "@rpath/$(basename "$dep")" "$dylib"
-        done
+        relink_macho "$dylib"
+    done
+    for prog in "${OUT}"/bin/*; do
+        [[ -f "$prog" && ! -L "$prog" ]] || continue
+        relink_macho "$prog"
+        # load commands read first: grep -q in a pipe could end otool early
+        # (SIGPIPE, a failure under pipefail) and the rpath would be added twice
+        loadcmds=$(otool -l "$prog")
+        if ! grep -qF '@executable_path/../lib' <<< "$loadcmds"; then
+            install_name_tool -add_rpath "@executable_path/../lib" "$prog"
+        fi
     done
 fi
 
