@@ -152,8 +152,9 @@ fi
 # (LDFLAGS is expanded twice: $$$$ -> $) and the shell (single quotes):
 # the value passed is  -Wl,-rpath,'\$\$\$\$ORIGIN'
 FFMPEG_EXTRA_LDFLAGS=""
+# $ORIGIN/../lib: the programs in bin/ find the libraries in lib/ the same way.
 if [[ "${TARGET_OS}" == "linux" && "${BUILD_TYPE}" == "shared" ]]; then
-    FFMPEG_EXTRA_LDFLAGS="-Wl,-rpath,'\\\$\\\$\\\$\\\$ORIGIN'"
+    FFMPEG_EXTRA_LDFLAGS="-Wl,-rpath,'\\\$\\\$\\\$\\\$ORIGIN:\\\$\\\$\\\$\\\$ORIGIN/../lib'"
 fi
 
 # Deps are static libraries for both build types: pkg-config must emit
@@ -299,6 +300,96 @@ for pc in "${OUT}"/lib/pkgconfig/*.pc; do
         "${DEPS_PREFIX}/lib=${DEPS_LIB_REL}" \
         "${OUT}=\${pcfiledir}/../.."
 done
+
+# ── Licenses, build info, target checks ───────────────────────────────────────
+# share/licenses/: FFmpeg's license texts (GPLv2 only for a GPL build) and
+# those of every dependency linked in, by the FFmpeg feature that uses it.
+# The list also drives the release packaging (which deps a static archive needs).
+LICENSES="${OUT}/share/licenses"
+rm -rf "$LICENSES" && mkdir -p "$LICENSES/ffmpeg"
+cp "${FFMPEG_SRC}/LICENSE.md" "${FFMPEG_SRC}/COPYING.LGPLv2.1" "$LICENSES/ffmpeg/"
+[[ "$license" == GPL* ]] && cp "${FFMPEG_SRC}/COPYING.GPLv2" "$LICENSES/ffmpeg/"
+LINKED_DEPS=()
+dep_if() {   # <config.h name> <dep>... — the deps behind an enabled feature
+    local flag="$1"
+    shift
+    if grep -qE "^#define (CONFIG|HAVE)_${flag} 1" config.h; then LINKED_DEPS+=("$@"); fi
+}
+dep_if ZLIB zlib
+dep_if LIBX264 x264
+dep_if LIBX265 x265
+dep_if LIBVPX libvpx
+dep_if LIBOPUS opus
+dep_if LIBVORBIS libvorbis libogg
+dep_if LIBWEBP libwebp
+dep_if LIBMP3LAME mp3lame
+dep_if LIBSVTAV1 svtav1
+dep_if LIBDAV1D dav1d
+dep_if FFNVCODEC ffnvcodec
+dep_if AMF amf
+dep_if LIBVPL libvpl
+dep_if VAAPI libva libdrm
+for d in "${LINKED_DEPS[@]+"${LINKED_DEPS[@]}"}"; do
+    if [[ ! -d "${DEPS_PREFIX}/share/licenses/$d" ]]; then
+        echo "ERROR: no license texts for $d in ${DEPS_PREFIX}/share/licenses (rebuild the deps)" >&2
+        exit 1
+    fi
+    cp -R "${DEPS_PREFIX}/share/licenses/$d" "$LICENSES/"
+done
+
+# Target system checks: what the outputs need from the user's OS
+target_note=""
+if [[ "${TARGET_OS}" == "linux" ]]; then
+    # newest glibc symbol version the programs and shared libraries import
+    glibc_need=$(for f in "${OUT}"/bin/* "${OUT}"/lib/*.so*; do
+                     [[ -f "$f" && ! -L "$f" ]] && objdump -T "$f" 2>/dev/null
+                 done | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -n 1 || true)
+    if [[ -n "$glibc_need" && "$(printf '%s\n%s\n' "$glibc_need" "${GLIBC_MAX_VERSION:?}" | sort -V | tail -n 1)" != "${GLIBC_MAX_VERSION}" ]]; then
+        echo "ERROR: outputs need glibc ${glibc_need}, the supported minimum is ${GLIBC_MAX_VERSION}" >&2
+        exit 1
+    fi
+    target_note="glibc ${glibc_need:-(static libraries only)} (supported: ${GLIBC_MAX_VERSION} and newer)"
+elif [[ "${TARGET_OS}" == "darwin" ]]; then
+    # LC_BUILD_VERSION minos of every program and dylib
+    macos_need=$(for f in "${OUT}"/bin/* "${OUT}"/lib/*.dylib; do
+                     [[ -f "$f" && ! -L "$f" ]] && otool -l "$f" 2>/dev/null
+                 done | awk '/LC_BUILD_VERSION/ { b = 1 } b && $1 == "minos" { print $2; b = 0 }' \
+                 | sort -V | tail -n 1 || true)
+    if [[ -n "$macos_need" && "$(printf '%s\n%s\n' "$macos_need" "${MACOS_MIN_VERSION:?}" | sort -V | tail -n 1)" != "${MACOS_MIN_VERSION}" ]]; then
+        echo "ERROR: outputs need macOS ${macos_need}, the supported minimum is ${MACOS_MIN_VERSION}" >&2
+        exit 1
+    fi
+    target_note="macOS ${MACOS_MIN_VERSION} (Apple silicon)"
+elif [[ "${TARGET_OS}" == "win64" ]]; then
+    stl=$(sed -nE 's/^#define _MSVC_STL_(VERSION|UPDATE) ([0-9]+).*/\2/p' "${MSVC_INC}/yvals_core.h" | paste -sd. -)
+    target_note="Windows SDK ${SDK_VER}, MSVC STL ${stl} (link with MSVC v143 or newer)"
+fi
+
+# share/custom_ffmpeg/build-info.txt: what this artifact is and was built with
+ffversion=$(sed -nE 's/^#define FFMPEG_VERSION "(.*)"/\1/p' libavutil/ffversion.h)
+commit=$(git -C "${REPO_ROOT}" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
+mkdir -p "${OUT}/share/custom_ffmpeg"
+{
+    echo "custom_ffmpeg ${commit}"
+    echo "variant:   ${TARGET_PLATFORM} ${BUILD_TYPE} ${PROFILE}"
+    echo "ffmpeg:    ${ffversion}"
+    echo "license:   ${license}"
+    echo "compiler:  $(clang --version | head -n 1)"
+    echo "target:    ${target_note}"
+    echo "dependencies:"
+    for d in "${LINKED_DEPS[@]+"${LINKED_DEPS[@]}"}"; do
+        case "$d" in
+            libvpx) pc=vpx ;; libvorbis) pc=vorbis ;; libogg) pc=ogg ;; svtav1) pc=SvtAv1Enc ;;
+            libvpl) pc=vpl ;; *) pc="$d" ;;
+        esac
+        v=$(pkg-config --modversion "$pc" 2>/dev/null || true)
+        [[ -z "$v" && "$d" == mp3lame ]] && v="${LAME_VERSION:-}"
+        [[ -z "$v" && "$d" == amf ]] && v="headers $(sed -nE 's/^#define AMF_VERSION_(MAJOR|MINOR|RELEASE)[[:space:]]+([0-9]+).*/\2/p' \
+            "${DEPS_PREFIX}/include/AMF/core/Version.h" | paste -sd. -)"
+        printf '  %-10s %s\n' "$d" "${v:-?}"
+    done
+} > "${OUT}/share/custom_ffmpeg/build-info.txt"
+cat "${OUT}/share/custom_ffmpeg/build-info.txt"
 
 stage "path check"
 check_no_local_paths "${OUT}" "${DEPS_PREFIX}"

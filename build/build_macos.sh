@@ -49,6 +49,10 @@ export LAME_URL="$(extract_cmake_var LAME_URL)"
 export LAME_TARBALL="$(extract_cmake_var LAME_TARBALL)"
 export LAME_SHA256="$(extract_cmake_var LAME_SHA256)"
 
+# Every library (deps via their build systems, which all honor the variable)
+# targets the minimum supported macOS, not the build machine's version
+export MACOSX_DEPLOYMENT_TARGET="$(extract_cmake_var MACOS_MIN_VERSION)"
+
 if [[ -z "${LAME_VERSION}" || -z "${LAME_URL}" || -z "${LAME_TARBALL}" || -z "${LAME_SHA256}" ]]; then
     echo "ERROR: failed to read LAME variables from ${VERSIONS_FILE}"
     exit 1

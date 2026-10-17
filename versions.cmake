@@ -38,6 +38,14 @@
 # To move a pin: check out the new tag in the submodule, commit the gitlink,
 # update this list (and X265_VERSION below when x265 changes).
 
+# Minimum target systems (README "Minimum supported"). macOS: Apple silicon
+# only — 27 is the first release without Intel support; every library is built
+# for it (MACOSX_DEPLOYMENT_TARGET, the target triple) and checked (LC_BUILD_VERSION).
+# Linux: builds run on Ubuntu 24.04 (glibc 2.39); the programs and shared
+# libraries must not need a newer glibc (checked after the build).
+set(MACOS_MIN_VERSION "27.0")
+set(GLIBC_MAX_VERSION "2.39")
+
 # x265 reads its version from git tags, which a shallow submodule checkout
 # (CI) does not have; x265Version.txt is written from this value instead
 set(X265_VERSION     "4.2")
