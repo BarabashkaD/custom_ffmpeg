@@ -19,6 +19,7 @@ build/build_linux.sh,
 build/build_macos.sh     native entry points: prerequisites, paths, deps, FFmpeg
 build/build_deps.sh      runs build/deps/<dep>_<os>.sh or the generic <dep>.sh
 build/lib/paths.sh       source export, path mapping, path-leak check
+build/lib/target_env.sh  target environment shared by the dep and FFmpeg stages (dirs, SDK/MSVC flags)
 scripts/build.ps1        Windows entry point: image → config → docker run → tests on the host
 tests/consumer/          find_package(CustomFFmpeg) → link → run, C and C++
 tests/deps/              run_dep_tests.py: each dependency's own test programs + CLI round trips;

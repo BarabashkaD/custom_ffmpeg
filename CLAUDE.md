@@ -28,6 +28,7 @@ build/
   build_macos.sh      macOS target, native
   build_deps.sh       runs deps/<dep>_<os>.sh, falls back to deps/<dep>.sh
   lib/paths.sh        export_src, path_map_flags, replace_paths, check_no_local_paths
+  lib/target_env.sh   target environment for the dep and FFmpeg stages (dirs, SDK/MSVC flags)
   deps/               one script per dependency (+ common.sh)
 scripts/build.ps1     Windows entry point: image → config → docker run → tests on the host
 tests/consumer/       find_package(CustomFFmpeg) → link → run (run.ps1 MSVC, run.sh clang)
