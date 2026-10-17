@@ -41,6 +41,31 @@ echo "  Type     : ${BUILD_TYPE}"
 echo "  Profile  : ${PROFILE}"
 echo "==========================="
 
+# ── Stage times ───────────────────────────────────────────────────────────────
+# stage <name> ends the running stage and starts the next ("" = none);
+# stage_summary prints how long each took (where a build spends its time —
+# e.g. the Windows CI build vs Linux/macOS)
+STAGE_LOG=()
+_stage_name="" _stage_t0=0
+stage() {
+    local now
+    now=$(date +%s)
+    [[ -n "$_stage_name" ]] && STAGE_LOG+=("${_stage_name}|$(( now - _stage_t0 ))")
+    _stage_name="$1" _stage_t0=$now
+}
+stage_summary() {
+    local e secs total=0
+    stage ""
+    echo "=== Stage times (${TARGET_PLATFORM} ${BUILD_TYPE} ${PROFILE}) ==="
+    for e in "${STAGE_LOG[@]+"${STAGE_LOG[@]}"}"; do
+        secs=${e##*|}
+        total=$(( total + secs ))
+        printf '  %-20s %4d:%02d\n' "${e%|*}" $(( secs / 60 )) $(( secs % 60 ))
+    done
+    printf '  %-20s %4d:%02d\n' "total" $(( total / 60 )) $(( total % 60 ))
+}
+
+stage "environment"
 # Directories, cross-compilation flags and the dep scripts' environment
 # shellcheck source=build/lib/target_env.sh
 source "${REPO_ROOT}/build/lib/target_env.sh"
@@ -53,6 +78,7 @@ mkdir -p "$OUT" "$BUILD_DIR"
 # ── Build dependencies ────────────────────────────────────────────────────────
 # Pass optional dep list from env: ONLY_DEPS="x264 x265" build_ffmpeg.sh ...
 if [[ "${SKIP_DEPS:-0}" != "1" ]]; then
+    stage "dependencies"
     # shellcheck disable=SC2086
     bash "${REPO_ROOT}/build/build_deps.sh" ${ONLY_DEPS:-}
 else
@@ -63,8 +89,11 @@ fi
 if [[ -n "${ONLY_DEPS:-}" ]]; then
     echo ""
     echo "=== ONLY_DEPS set — skipping FFmpeg configure/build ==="
+    stage_summary
     exit 0
 fi
+
+stage "sources"
 
 # ── FFmpeg sources ────────────────────────────────────────────────────────────
 # win64: export the submodule onto the native FS (export_src: ~1 s via git
@@ -87,6 +116,7 @@ ROOT_MAP=("${BUILD_ROOT}=/build" "${ARTIFACTS_ROOT}=/artifacts" "${REPO_ROOT}=/s
 PATH_MAP_FLAGS="$(path_map_flags "${ROOT_MAP[@]}")"
 
 # ── Configure FFmpeg ──────────────────────────────────────────────────────────
+stage "configure"
 echo "=== Configuring FFmpeg ==="
 cd "$BUILD_DIR"
 
@@ -196,8 +226,11 @@ if [[ "${TARGET_OS}" == "win64" && "${BUILD_TYPE}" == "shared" ]]; then
         ffbuild/config.mak
     rm -f ffbuild/config.mak.bak
 fi
+stage "make"
 make -j"${JOBS}"
+stage "install"
 make install
+stage "post-install"
 
 # win64 shared: FFmpeg installs the import libs next to the DLLs (bin/);
 # consumers (and FindCustomFFmpeg) expect them in lib/
@@ -267,6 +300,7 @@ for pc in "${OUT}"/lib/pkgconfig/*.pc; do
         "${OUT}=\${pcfiledir}/../.."
 done
 
+stage "path check"
 check_no_local_paths "${OUT}" "${DEPS_PREFIX}"
 
 # ── Test build (FFMPEG_TESTS=1, win64) ────────────────────────────────────────
@@ -281,6 +315,7 @@ check_no_local_paths "${OUT}" "${DEPS_PREFIX}"
 # to date and only runs tests; run_fate.sh points the recorded source path at
 # the exported sources (<export>/src/ffmpeg).
 if [[ "${TARGET_OS}" == "win64" && "${FFMPEG_TESTS:-0}" == "1" ]]; then
+    stage "FATE prerequisites"
     echo "=== Building FATE prerequisites ==="
     # The API test programs (tests/api) are not part of "build"; their list
     # exists only inside the Makefile — expose it through a helper target
@@ -307,3 +342,4 @@ echo ""
 echo "=== FFmpeg build complete ==="
 echo "    Output: $OUT"
 ls "${OUT}/lib/" 2>/dev/null || true
+stage_summary

@@ -426,6 +426,12 @@ jobs:
           docker pull "$IMAGE_LOWER"
           docker tag  "$IMAGE_LOWER" custom-ffmpeg-builder
 
+          # CPU / I/O load while building: vmstat every 15 s, averages at the end
+          # (high user% = CPU-bound; idle/iowait while compiling = waiting for files)
+          vmstat -n 15 > /tmp/vmstat.log &
+          VMSTAT=$!
+          trap 'kill $VMSTAT 2>/dev/null; awk "NR == 2 { for (i = 1; i <= NF; i++) c[\$i] = i; next } NR > 3 && \$1 ~ /^[0-9]+\$/ { n++; for (k in c) s[k] += \$c[k] } END { if (n) printf \"vmstat: %d samples x 15 s: user %.0f%%, sys %.0f%%, idle %.0f%%, iowait %.0f%%, run queue %.1f, blocked %.1f\\n\", n, s[\"us\"]/n, s[\"sy\"]/n, s[\"id\"]/n, s[\"wa\"]/n, s[\"r\"]/n, s[\"b\"]/n }" /tmp/vmstat.log' EXIT
+
           docker run --rm \
             -v "$REPO:/src" \
             -v "$REPO/prebuilt:/artifacts" \
@@ -562,6 +568,12 @@ jobs:
           echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
           docker pull "$IMAGE_LOWER"
           docker tag  "$IMAGE_LOWER" custom-ffmpeg-builder
+
+          # CPU / I/O load while building: vmstat every 15 s, averages at the end
+          # (high user% = CPU-bound; idle/iowait while compiling = waiting for files)
+          vmstat -n 15 > /tmp/vmstat.log &
+          VMSTAT=$!
+          trap 'kill $VMSTAT 2>/dev/null; awk "NR == 2 { for (i = 1; i <= NF; i++) c[\$i] = i; next } NR > 3 && \$1 ~ /^[0-9]+\$/ { n++; for (k in c) s[k] += \$c[k] } END { if (n) printf \"vmstat: %d samples x 15 s: user %.0f%%, sys %.0f%%, idle %.0f%%, iowait %.0f%%, run queue %.1f, blocked %.1f\\n\", n, s[\"us\"]/n, s[\"sy\"]/n, s[\"id\"]/n, s[\"wa\"]/n, s[\"r\"]/n, s[\"b\"]/n }" /tmp/vmstat.log' EXIT
 
           docker run --rm \
             -v "$REPO:/src" \
