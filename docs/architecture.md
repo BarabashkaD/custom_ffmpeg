@@ -1,3 +1,4 @@
+| Shared dylibs get `-Wl,-rpath,@loader_path` (`--extra-ldsoflags`); the programs get `@executable_path/../lib` after the build | the dylibs' install names and sibling dependencies are `@rpath/…`; without an rpath of their own a host that `dlopen`s a dylib by path (rawreel) fails with "no LC_RPATH's found"; checked by `tests/consumer/check_macos_dlopen.sh` |
 # Architecture
 
 Problems met while building and how they were solved: [build-issues.md](build-issues.md).

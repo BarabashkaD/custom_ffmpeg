@@ -1,3 +1,4 @@
+| M | v1.0.0 macOS shared dylibs failed to `dlopen` by path: "Library not loaded: @rpath/libswresample.6.dylib … no LC_RPATH's found" | install names and sibling references are `@rpath/…`, but only the programs got an rpath | `-Wl,-rpath,@loader_path` for the shared libraries; `tests/consumer/check_macos_dlopen.sh` (v1.0.1) |
 # Build issues found and solved
 
 Every problem met while building FFmpeg and its dependencies for

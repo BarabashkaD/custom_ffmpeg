@@ -166,6 +166,15 @@ if [[ "${TARGET_OS}" == "linux" && "${BUILD_TYPE}" == "shared" ]]; then
                        --extra-ldexeflags="-Wl,-rpath,'\\\$\\\$ORIGIN/../lib'")
 fi
 
+# macOS shared: the dylibs record their siblings as @rpath/<lib>.<major>.dylib;
+# without an rpath of their own, a host that dlopen()s one by path (no linked
+# executable that carries an rpath) fails with "no LC_RPATH's found".
+# @loader_path = the folder of the dylib itself. --extra-ldsoflags reaches the
+# shared libraries only; the programs get @executable_path/../lib further below.
+if [[ "${TARGET_OS}" == "darwin" && "${BUILD_TYPE}" == "shared" ]]; then
+    FFMPEG_RPATH_ARGS=(--extra-ldsoflags="-Wl,-rpath,@loader_path")
+fi
+
 # Deps are static libraries for both build types: pkg-config must emit
 # Libs.private (e.g. -lstdc++ for x265, -lm) — a shared FFmpeg links them in too
 PKG_CONFIG_FLAGS="--pkg-config-flags=--static"
