@@ -40,6 +40,9 @@ FFmpeg n8.1.3. Tests: FATE with fate-suite samples (includes FFmpeg's
 checkasm) and the consumer test (`tests/consumer`: `find_package` → link →
 run; Windows: C/C++ × Release/Debug, plus C++ with swapped MSVC runtimes for
 lgpl/full; Linux: C/C++).
+The macOS shared variants also run `tests/consumer/check_macos_dlopen.sh`: every
+dylib must carry `LC_RPATH @loader_path` and load by `dlopen` from a copy of
+`lib/` in an empty directory (CI: built tree and unpacked release archive).
 
 | Configuration | windows-x64 | linux-x64 | macos-arm64 | Not run |
 |---|---|---|---|---|

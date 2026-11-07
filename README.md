@@ -190,7 +190,8 @@ add_custom_command(TARGET app POST_BUILD
 Variables: `CUSTOM_FFMPEG_SHARED`, `CUSTOM_FFMPEG_RUNTIME_LIBRARIES` (files to
 ship), `CUSTOM_FFMPEG_EXTRA_LIBRARIES` (static: codec + system libraries).
 Linux `.so` files carry `RUNPATH=$ORIGIN` and the programs in `bin/`
-`$ORIGIN/../lib`; macOS dylibs and programs use `@rpath`.
+`$ORIGIN/../lib`; macOS dylibs and programs use `@rpath`, and each dylib has
+`LC_RPATH @loader_path`, so it can be `dlopen`ed by path on its own.
 
 Every variant also contains:
 

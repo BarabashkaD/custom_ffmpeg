@@ -789,6 +789,13 @@ jobs:
         run: |
           bash tests/consumer/run.sh prebuilt/macos-arm64/${{ matrix.type }}/${{ matrix.profile }}
 
+      # Shared: each dylib must load by path on its own (LC_RPATH @loader_path)
+      - name: dlopen check (shared dylibs)
+        if: matrix.type == 'shared'
+        env:
+          CHECK_LIBS: ${{ matrix.profile == 'minimal' && 'avutil swscale' || '' }}
+        run: bash tests/consumer/check_macos_dlopen.sh prebuilt/macos-arm64/shared/${{ matrix.profile }}
+
       # FATE without samples (internal tests, checkasm, generated data) on
       # fresh static builds with programs
       - name: FATE
@@ -811,6 +818,10 @@ jobs:
           x="$RUNNER_TEMP/pkg"; mkdir -p "$x"; tar -xJf "$a" -C "$x"
           d="$x/$(basename "$a" .tar.xz)"
           CUSTOM_FFMPEG_MODULE_DIR="$d/cmake" bash tests/consumer/run.sh "$d/macos-arm64/${{ matrix.type }}/${{ matrix.profile }}" "$RUNNER_TEMP/pkg-consumer"
+          if [ "${{ matrix.type }}" = shared ]; then
+            export CHECK_LIBS="${{ matrix.profile == 'minimal' && 'avutil swscale' || '' }}"
+            bash tests/consumer/check_macos_dlopen.sh "$d/macos-arm64/shared/${{ matrix.profile }}"
+          fi
 
       - name: Upload release archive
         uses: actions/upload-artifact@v6

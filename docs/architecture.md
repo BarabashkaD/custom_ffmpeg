@@ -127,6 +127,7 @@ headers, MSVC, Windows SDK (clang's intrinsics headers must win over MSVC's).
 |---|---|
 | libvorbis: `-force_cpusubtype_ALL` removed from the generated Makefiles | `configure.ac` hard-codes it for darwin; the Xcode linker rejects it |
 | x265 with its AArch64 assembly | upstream's default on arm64 (NEON, dot product, i8mm; SVE checks fail on Apple clang and are skipped); TestBench exists only with assembly |
+| Shared dylibs get `-Wl,-rpath,@loader_path` (`--extra-ldsoflags`); the programs get `@executable_path/../lib` after the build | the dylibs' install names and sibling dependencies are `@rpath/…`; without an rpath of their own a host that `dlopen`s a dylib by path (rawreel) fails with "no LC_RPATH's found"; checked by `tests/consumer/check_macos_dlopen.sh` |
 | CI on `xcode-27` runners | macOS 27 on Apple silicon, the minimum supported version; GitHub names macOS images by Xcode version |
 
 ### Codec dependencies

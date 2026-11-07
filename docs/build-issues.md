@@ -80,6 +80,7 @@ Legend: **W** windows-x64, **L** linux-x64, **M** macos-arm64, **CI** GitHub Act
 | W shared | consumers did not find import libraries | FFmpeg puts them next to the DLLs | moved from `bin/` to `lib/` |
 | L shared | `.so` did not find sibling libraries | no RUNPATH | `RUNPATH=$ORIGIN` (escaped through configure eval, make and shell) |
 | M shared | absolute build paths in dylibs | default install names | `install_name` → `@rpath/` |
+| M | v1.0.0 macOS shared dylibs failed to `dlopen` by path: "Library not loaded: @rpath/libswresample.6.dylib … no LC_RPATH's found" | install names and sibling references are `@rpath/…`, but only the programs got an rpath | `-Wl,-rpath,@loader_path` for the shared libraries; `tests/consumer/check_macos_dlopen.sh` (v1.0.1) |
 | all | public `hwcontext_amf.h` / `hwcontext_qsv.h` did not compile for consumers | they include AMF / libvpl headers not in the artifact | `include/AMF`, `include/vpl` shipped; FindCustomFFmpeg adds `include/vpl` |
 | L | same for `hwcontext_vaapi.h` | it includes `<va/va.h>` | `include/va` shipped |
 | L | required-component check could not express `vaapi_drm` | it is a `HAVE_` feature, not a component | the check also accepts `HAVE_<NAME>` |
